@@ -2,10 +2,6 @@ import { IsString, IsNotEmpty, IsOptional } from "class-validator";
 
 export class CreateAddressDto {
     @IsString()
-    @IsOptional()
-    storeId?: string;
-
-    @IsString()
     @IsNotEmpty()
     address: string;
 

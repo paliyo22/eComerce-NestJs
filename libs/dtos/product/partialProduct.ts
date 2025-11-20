@@ -7,7 +7,7 @@ export class PartialProductDto {
     category: string;
     price: number;
     discountPercentage: number;
-    stock: boolean;
+    stock: number;
     brand: string;
     tags?: string[];
     images?: string[]; 
@@ -15,17 +15,17 @@ export class PartialProductDto {
 
     static fromEntity(product: Product): PartialProductDto {
         return {
-            id: product.id.toString(),
+            id: product.id,
             title: product.title,
             description: product.description,
-            category: product.category?.title || '',
-            price: Number(product.price),
+            category: product.category.slug,
+            price: product.price,
             discountPercentage: product.discountPercentage,
-            stock: product.stock > 0,
+            stock: product.stock,
             brand: product.brand,
-            tags: product.tags?.map(t => t.title),
-            images: product.images?.map(i => i.link),
-            thumbnail: product.thumbnail
+            tags: product.tags? product.tags.map(t => t.title): undefined,
+            images: product.images? product.images.map(i => i.link): undefined,
+            thumbnail: product.thumbnail || undefined
         };
     }
 }

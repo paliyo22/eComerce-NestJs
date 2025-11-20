@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, JoinColumn, CreateDateColumn, UpdateDateColumn, OneToOne } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, JoinColumn, CreateDateColumn, UpdateDateColumn, OneToOne, Column } from "typeorm";
 import { Product } from "./product.entity";
 import { BinaryUuidColumn } from "libs/shared/binary-uuid.decorator";
 
@@ -11,8 +11,11 @@ export class Meta {
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @BinaryUuidColumn({ name: 'product_id', insert: false, update: false })
-  productId: string;
+  @Column({ type: 'datetime', nullable: true })
+  deleted: Date;
+    
+  @BinaryUuidColumn({ name: 'deleted_by'})
+  deletedBy: string;
 
   @CreateDateColumn({ type: 'datetime' })
   created: Date;

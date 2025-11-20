@@ -11,8 +11,8 @@ export class AdminProfile {
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
-  @BinaryUuidColumn({ name: 'account_id', unique: true })
-  accountId: string;
+  @BinaryUuidColumn({ name: 'account_id', nullable: true })
+  accountId: string | null;
 
   @Column({ name: 'public_name', type: 'varchar', length: 20, unique: true })
   publicName: string;

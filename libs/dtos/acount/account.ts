@@ -3,12 +3,10 @@ import { AddressDto } from "../address/address";
 import { StoreDto } from "../store";
 import { UserProfileDto } from "./user";
 import { AdminProfileDto, BusinessProfileDto, MetaDto } from ".";
+import { ERole } from "libs/shared/role-enum";
+import { PartialAccountDto } from "./partial-account";
 
-export class AccountDto {
-    id: string;
-    role: string;
-    email: string;
-    username: string;
+export class AccountDto extends PartialAccountDto{
     meta: MetaDto;
     userProfile?: UserProfileDto;
     businessProfile?: BusinessProfileDto;
@@ -17,17 +15,18 @@ export class AccountDto {
     store?: StoreDto[];
 
     static fromEntity(account: Account): AccountDto {
-            return {
-                id: account.id,
-                role: account.meta.role.slug,
-                email: account.email,
-                username: account.username,
-                meta: MetaDto.fromEntity(account.meta),
-                userProfile: account.userProfile? UserProfileDto.fromEntity(account.userProfile): undefined,
-                businessProfile: account.businessProfile? BusinessProfileDto.fromEntity(account.businessProfile): undefined,
-                adminProfile: account.adminProfile? AdminProfileDto.fromEntity(account.adminProfile): undefined,
-                address: account.addresses.map(address => (AddressDto.fromEntity(address))) || [],
-                store: account.stores.map(store => (StoreDto.fromEntity(store))) || []
-            };
-        }
+        return {
+            id: account.id,
+            email: account.email,
+            username: account.username,
+            meta: MetaDto.fromEntity(account.meta),
+            role: account.meta.role.slug as ERole,
+            status: account.meta.status.name,
+            userProfile: account.userProfile? UserProfileDto.fromEntity(account.userProfile): undefined,
+            businessProfile: account.businessProfile? BusinessProfileDto.fromEntity(account.businessProfile): undefined,
+            adminProfile: account.adminProfile? AdminProfileDto.fromEntity(account.adminProfile): undefined,
+            address: account.addresses?.map(address => (AddressDto.fromEntity(address))) ?? [],
+            store: account.stores?.map(store => (StoreDto.fromEntity(store))) ?? []
+        };
+    }
 }

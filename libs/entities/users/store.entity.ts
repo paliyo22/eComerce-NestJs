@@ -11,8 +11,8 @@ export class Store {
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
-  @BinaryUuidColumn({ name: 'account_id' })
-  accountId: string;
+  @BinaryUuidColumn({ name: 'account_id', nullable: true })
+  accountId: string | null;
 
   @Column({ type: 'varchar', length: 50 })
   phone: string;

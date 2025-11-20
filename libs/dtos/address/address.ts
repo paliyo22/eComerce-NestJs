@@ -1,6 +1,7 @@
 import { Address } from "libs/entities/users";
 
 export class AddressDto {
+    id: string;
     address: string;
     apartment: string;
     city: string;
@@ -9,6 +10,7 @@ export class AddressDto {
 
     static fromEntity(address: Address): AddressDto {
         return {
+            id: address.id,
             address: address.address,
             apartment: address.apartment,
             city: address.city,

@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PartialProductDto, ProductDto, CreateProductDto, UpdateProductDto } from 'libs/dtos/product';
-import { SuccessDto } from 'libs/dtos/respuesta';
+import { SuccessDto } from 'libs/shared/respuesta';
 import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
 import { Product, Category, Tag, Meta, Image, Review } from 'libs/entities/products';
 import { Repository } from 'typeorm';
@@ -15,392 +14,610 @@ export class ProductService {
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
 
+    @InjectRepository(Review)
+    private readonly reviewRepository: Repository<Review>,
+
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
-
-    @InjectRepository(Tag)
-    private readonly tagRepository: Repository<Tag>,
-
-    @InjectRepository(Image)
-    private readonly imageRepository: Repository<Image>,
-
-    @InjectRepository(Meta)
-    private readonly metaRepository: Repository<Meta>,
-
-    @InjectRepository(Review)
-    private readonly reviewRepository: Repository<Review>
   ) {};
 
-  // GET: /
-  async getProductList(limit?: number, offset?:number): Promise<SuccessDto<PartialProductDto[]>> {
+  // GET: /total
+  async getTotal(category?: string): Promise<SuccessDto<number>> {
     try {
-      const products = await this.productRepository.find({
-        take: limit ?? 10,
-        skip: offset ?? 0,
-        relations: ['category', 'tags', 'images'],
-        order: { title: 'ASC' }
-      });
+      let sql: string;
+      let params: any[] = [];
 
-      const productList = products.map(p => PartialProductDto.fromEntity(p));
+      if (!category) {
+        sql = `
+          SELECT COUNT(*) AS total
+          FROM product p
+          INNER JOIN meta m ON p.id = m.product_id
+          WHERE m.deleted_by IS NULL
+        `;
+      } else {
+        sql = `
+          SELECT COUNT(*) AS total
+          FROM product p
+          INNER JOIN meta m ON p.id = m.product_id
+          INNER JOIN category c ON p.category_id = c.id
+          WHERE m.deleted_by IS NULL
+            AND c.slug = ?
+        `;
+        params = [category];
+      }
+
+      const result = await this.productRepository.query(sql, params);
 
       return {
         success: true,
-        data: productList
+        data: Number(result[0].total)
+      };
+
+    } catch (err) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // GET: /
+  async getProductList(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.deleted_by IS NULL')
+        .orderBy('p.title', 'DESC')
+        .limit(limit ?? 20)
+        .offset(offset ?? 0);
+
+      const product = await qb.getMany()
+
+      return {
+        success: true,
+        data: product.map(p => PartialProductDto.fromEntity(p))
       };
     } catch (err) {
-      throw new RpcException(
-        err.message || 'Error conectando con la Base de Datos de Productos'
-      );
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
     }
   }
 
   // GET: /:category
-  async getProductsByCategory(category: string, limit?: number, offset?:number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getProductByCategory(category: string, limit?: number, offset?:number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
-      const products = await this.productRepository.find({
-        where: {
-          category: { slug: category }
-        },
-        take: limit ?? 10,
-        skip: offset ?? 0,
-        relations: ['category', 'tags', 'images'],
-        order: { title: 'ASC' }
-      });
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.deleted_by IS NULL')
+        .andWhere('c.slug = :slug', { slug: category })
+        .orderBy('p.title', 'DESC')
+        .limit(limit ?? 20)
+        .offset(offset ?? 0);
 
-      if (!products.length)
-        return { success: false, message: 'No se encontraron productos en esta categoría' };
+      const product = await qb.getMany(); 
 
       return {
         success: true,
-        data: products.map((p) => PartialProductDto.fromEntity(p)),
+        data: product.map((p) => PartialProductDto.fromEntity(p)),
       };
     } catch (err: any) {
-      throw new RpcException(err.message || 'Error obteniendo productos por categoría');
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // GET: /featured
+  async getFeatured(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.deleted_by IS NULL')
+        .andWhere('p.stock > 0')
+        .orderBy('p.rating_avg', 'DESC')
+        .limit(limit ?? 20)
+        .offset(offset ?? 0);
+
+      const product = await qb.getMany();
+
+      return {
+        success: true,
+        data: product.map(p => PartialProductDto.fromEntity(p))
+      };
+    } catch (err) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
     }
   }
 
   // GET: /:productId
   async getProductById(productId: string): Promise<SuccessDto<ProductDto>> {
     try {
-      const product = await this.productRepository.findOne({
-        where: { id: productId },
-        relations: ['category', 'tags',
-          'images', 'reviews', 'meta'
-        ]
-      });
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .leftJoinAndSelect('p.meta', 'm')
+        .leftJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('p.id = :id', {id: productId});
+
+      const product = await qb.getOne();
 
       if (!product) {
-          return { success: false, message: 'Producto no encontrado' };
+        return { success: false, message: 'Producto no encontrado', code:400 };
       }
 
-      const productDto = ProductDto.fromEntity(product);
-
-      return { success: true, data: productDto };
+      return { success: true, data: ProductDto.fromEntity(product) };
     } catch (err) {
-        throw new RpcException(err.message || 'Error conectando con la Base de Datos de Productos');
-    }
-  }
-
-  // POST: /
-  async createProduct(data: CreateProductDto): Promise<SuccessDto<ProductDto>> {
-    try {
-      // Buscar la categoría por slug o título
-      const category = await this.categoryRepository.findOne({
-        where: [{ slug: data.category }, { title: data.category }],
-      });
-
-      if (!category) {
-        return { success: false, message: 'Categoría no encontrada' };
-      }
-
-      // Crear la entidad base del producto
-      const product = this.productRepository.create({
-        title: data.title,
-        description: data.description,
-        category,
-        price: data.price,
-        discountPercentage: data.discountPercentage ?? 0,
-        stock: data.stock,
-        brand: data.brand,
-        weight: data.weight,
-        warrantyInfo: data.warrantyInformation,
-        shippingInfo: data.shippingInformation,
-        physical: data.physical,
-        thumbnail: data.thumbnail,
-      });
-
-      // Guardar producto en DB
-      const savedProduct = await this.productRepository.save(product);
-
-      // Guardar meta (timestamps)
-      const meta = this.metaRepository.create({
-        product: savedProduct,
-      });
-      await this.metaRepository.save(meta);
-
-      // Guardar tags (crear si no existen)
-      if (data.tags?.length) {
-        const tags = await Promise.all(
-          data.tags.map(async (title) => {
-            const normalizedTitle = title.trim().toLowerCase();
-            let tag = await this.tagRepository.findOne({ where: { title: normalizedTitle } });
-            if (!tag) {
-              tag = this.tagRepository.create({ title: normalizedTitle });
-              await this.tagRepository.save(tag);
-            }
-            return tag;
-          })
-        );
-        savedProduct.tags = tags;
-        await this.productRepository.save(savedProduct);
-      }
-
-      // Guardar imágenes
-      if (data.images && data.images.length > 0) {
-        const images = data.images.map((link) =>
-          this.imageRepository.create({
-            product: savedProduct,
-            link,
-          })
-        );
-        await this.imageRepository.save(images);
-      }
-
-      // Recargar producto con todas las relaciones
-      const fullProduct = await this.productRepository.findOne({
-        where: { id: savedProduct.id },
-        relations: ['category', 'tags', 'images', 'meta'],
-      });
-
-      const productDto = ProductDto.fromEntity(fullProduct!);
-
-      return { success: true, data: productDto };
-    } catch (err) {
-      throw new RpcException(
-        err.message || 'Error conectando con la Base de Datos de Productos'
-      );
-    }
-  }
-
-  // PUT: /
-  async updateProduct(data: UpdateProductDto): Promise<SuccessDto<ProductDto>> {
-    try {
-      // Buscar producto existente
-      const product = await this.productRepository.findOne({
-        where: { id: data.id },
-        relations: ['category', 'tags', 'images', 'reviews'],
-      });
-
-      if (!product) {
-        return { success: false, message: 'Producto no encontrado' };
-      }
-
-      // Actualizar campos básicos (solo si vienen en el DTO)
-      if (data.title !== undefined) product.title = data.title;
-      if (data.description !== undefined) product.description = data.description;
-      if (data.price !== undefined) product.price = data.price;
-      if (data.discountPercentage !== undefined) product.discountPercentage = data.discountPercentage;
-      if (data.stock !== undefined) product.stock = data.stock;
-      if (data.brand !== undefined) product.brand = data.brand;
-      if (data.weight !== undefined) product.weight = data.weight;
-      if (data.warrantyInformation !== undefined) product.warrantyInfo = data.warrantyInformation;
-      if (data.shippingInformation !== undefined) product.shippingInfo = data.shippingInformation;
-      if (data.physical !== undefined) product.physical = data.physical;
-      if (data.thumbnail !== undefined) product.thumbnail = data.thumbnail;
-
-      // Actualizar categoría (si llega un slug o nombre)
-      if (data.category) {
-        const category = await this.categoryRepository.findOne({
-          where: [{ slug: data.category }, { title: data.category }],
-        });
-        if (!category) throw new RpcException('Categoría no encontrada');
-        product.category = category;
-      }
-
-      // Actualizar tags (si llegan)
-      if (data.tags && Array.isArray(data.tags)) {
-        const normalizedTags = await Promise.all(
-          data.tags.map(async (title) => {
-            const normalizedTitle = title.trim().toLowerCase();
-            let tag = await this.tagRepository.findOne({ where: { title: normalizedTitle } });
-            if (!tag) {
-              tag = this.tagRepository.create({ title: normalizedTitle });
-              await this.tagRepository.save(tag);
-            }
-            return tag;
-          }),
-        );
-        product.tags = normalizedTags;
-      }
-
-      // Reemplazar completamente las imágenes (si llegan)
-      if (data.images && Array.isArray(data.images)) {
-        // Eliminar todas las imágenes anteriores
-        await this.imageRepository.delete({ productId: product.id });
-
-        // Crear nuevas imágenes
-        const newImages = data.images.map((link) =>
-          this.imageRepository.create({ link, product })
-        );
-        await this.imageRepository.save(newImages);
-        product.images = newImages;
-      }
-
-      // Guardar cambios
-      const updated = await this.productRepository.save(product);
-
-      // Retornar DTO de respuesta
       return {
-        success: true,
-        data: ProductDto.fromEntity(updated),
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
       };
-    } catch (err) {
-      throw new RpcException(err.message || 'Error actualizando el producto');
-    }
-  }
-
-  // PATCH: /price
-  async updatePrice(productId: string, price: number): Promise<SuccessDto<null>> {
-    try {
-      if (price <= 0) return { success: false, message: 'El precio debe ser mayor que cero' };
-      
-      const result = await this.productRepository.update({ id: productId }, { price });
-      if (result.affected === 0) return { success: false, message: 'Producto no encontrado' };
-
-      return { success: true };
-    } catch (err) {
-      throw new RpcException(err.message || 'Error actualizando el precio del producto');
-    }
-  }
-
-  // PATCH: /stock
-  async modifyStock(productId: string, delta: number): Promise<SuccessDto<number>> {
-    try {
-      const product = await this.productRepository.findOne({
-        where: { id: productId }
-      });
-
-      if (!product) return { success: false, message: 'Producto no encontrado' };
-
-      product.stock += delta;
-
-      if (product.stock < 0) return { success: false, message: 'El stock no puede ser negativo' };
-
-      await this.productRepository.save(product);
-
-      return { success: true, data: product.stock };
-    } catch (err) {
-      throw new RpcException(err.message || 'Error actualizando el stock del producto');
-    }
-  }
-
-  // PATCH: /discount
-  async updateDiscount(productId: string, discount: number): Promise<SuccessDto<null>> {
-    try {
-      if (discount < 0 || discount > 100)
-        return { success: false, message: 'El descuento debe estar entre 0 y 100' };
-
-      const result = await this.productRepository.update({ id: productId }, { discountPercentage: discount });
-      if (result.affected === 0) return { success: false, message: 'Producto no encontrado' };
-
-      return { success: true };
-    } catch (err) {
-      throw new RpcException(err.message || 'Error actualizando el descuento del producto');
-    }
-  }
-
-  // DELETE: /:id
-  async deleteProduct(userId: string, productId: string): Promise<SuccessDto<null>> {
-    try {
-      const product = await this.productRepository.findOne({ where: { id: productId } });
-      if (!product){
-        return { success: false, message: 'Producto no encontrado' };
-      }
-
-      if (product.userId !== userId) { 
-        throw new RpcException({
-          message: 'No autorizado para eliminar este producto',
-          code: 'FORBIDDEN',
-        });
-      }
-
-      await this.productRepository.delete({ id: productId });
-
-      return { success: true };
-    } catch (err: any) {
-      throw new RpcException(err.message || 'Error eliminando el producto');
     }
   }
 
   // POST: /review
   async addReview(userId: string, data: CreateReviewDto): Promise<SuccessDto<ReviewDto[]>> {
     try {
-      // Verificar que el producto exista
-      const product = await this.productRepository.findOne({
-        where: { id: data.productId },
-        relations: ['reviews'], // para devolver las reseñas al final
-      });
-
-      if (!product) {
-        return { success: false, message: 'Producto no encontrado' };
+      const productExists = await this.productRepository.findOne({ where: { id: data.productId } });
+      if (!productExists) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
       }
 
-      // Verificar si ya existe una reseña del usuario para este producto
-      const existing = await this.reviewRepository.findOne({
-        where: { productId: data.productId, userId },
-      });
-
-      if (existing) {
-        return { success: false, message: 'Ya existe una reseña de este usuario para este producto' };
-      }
-
-      // Crear nueva reseña
-      const review = this.reviewRepository.create({
-        productId: data.productId,
+      await this.reviewRepository
+      .createQueryBuilder()
+      .insert()
+      .into(Review)
+      .values({
+        product: { id: data.productId },
         userId,
         rating: data.rating,
-        comment: data.comment ?? undefined,
-      });
+        comment: data.comment ?? null
+      })
+      .execute();
 
-      // Guardar en la base de datos
-      await this.reviewRepository.save(review);
+      const reviews = await this.reviewRepository
+        .createQueryBuilder('r')
+        .select([
+          'r.rating',
+          'r.comment',
+          'r.created',
+          'r.userId',
+          'p.id AS productId' 
+        ])
+        .leftJoin('r.product', 'p')
+        .where('r.product_id = :productId', { productId: data.productId })
+        .orderBy('r.created', 'DESC')
+        .getRawMany(); // devuelve un objeto plano con los campos seleccionados
 
-      // Obtener reseñas actualizadas del producto
-      const reviews = await this.reviewRepository.find({
-        where: { productId: data.productId },
-        order: { created: 'DESC' },
-      });
-
-      // Retornar todas las reseñas mapeadas a DTO
       return {
         success: true,
-        data: reviews.map((r) => ReviewDto.fromEntity(r)),
+        data: reviews.map(ReviewDto.fromEntity)
       };
     } catch (err: any) {
       if (err.code === 'ER_DUP_ENTRY') {
-        return { success: false, message: 'El usuario ya calificó este producto' };
+        return { success: false, message: 'El usuario ya calificó este producto', code: 400 };
       }
 
-      throw new RpcException(err.message || 'Error agregando la reseña del producto');
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
     }
   }
 
   // DELETE: /review/:productId
-  async deleteReview(userId: string, productId: string): Promise<SuccessDto<null>> {
+  async deleteReview(userId: string, productId: string): Promise<SuccessDto<void>> {
     try {
       const result = await this.reviewRepository.delete({ userId, productId });
 
-      if (result.affected === 0) 
-        return { success: false, message: 'Reseña no encontrada' };
+      if (result.affected === 0) {
+        return {
+          success: false,
+          message: 'La reseña no existe o ya fue eliminada',
+          code: 400
+        };
+      }
 
-      return { success: true };
-    } catch (err) {
-      throw new RpcException(err.message || 'Error eliminando el producto');
+      return {
+        success: true,
+        message: 'Reseña eliminada'
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
     }
   }
 
+  // GET: /search
+  async searchProduct(contains: string): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.deleted_by IS NULL')
+        .andWhere('LOWER(p.title) LIKE :text', { text: `%${contains.toLowerCase()}%` })
+        .orderBy('p.title', 'ASC')
+        .limit(20);
+
+      const products = await qb.getMany();
+
+      return {
+        success: true,
+        data: products.map(p => PartialProductDto.fromEntity(p))
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // GET: /:username
+  async accountProductList(userId: string): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.deleted_by IS NULL')
+        .andWhere('m.created_by = :userId', { userId })
+        .orderBy('p.created', 'DESC');
+
+      const products = await qb.getMany();
+
+      return {
+        success: true,
+        data: products.map(p => PartialProductDto.fromEntity(p))
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // PATCH: /price/:productId
+  async updatePrice(userId: string, productId: string, price: number): Promise<SuccessDto<void>> {
+    try {
+      const product = await this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .where('p.id = :productId', { productId })
+        .andWhere('m.deleted_by IS NULL')
+        .select('p.user_id')
+        .getRawOne();
+
+      if (!product) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
+      }
+
+      if (product.p_user_id !== userId) {
+        return { success: false, message: 'No tienes permiso para modificar este producto', code: 403 };
+      }
+
+      await this.productRepository.update(productId, { price });
+
+      return {
+        success: true,
+        message: 'Precio actualizado'
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // PATCH: /discount/:productId
+  async updateDiscount(userId: string, productId: string, discount: number): Promise<SuccessDto<void>> {
+    try {
+      const product = await this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .where('p.id = :productId', { productId })
+        .andWhere('m.deleted_by IS NULL')
+        .select('p.user_id') 
+        .getRawOne();
+
+      if (!product) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
+      }
+
+      if (product.p_user_id !== userId) {
+        return { success: false, message: 'No tienes permiso para modificar este producto', code: 403 };
+      }
+
+      await this.productRepository.update(productId, { discountPercentage: discount });
+
+      return {
+        success: true,
+        message: 'Descuento actualizado'
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // PATCH: /stock/:productId
+  async modifyStock(userId: string, productId: string, delta: number): Promise<SuccessDto<number>> {
+    try {
+      const product = await this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .where('p.id = :productId', { productId })
+        .andWhere('m.deleted_by IS NULL')
+        .select(['p.user_id', 'p.stock'])
+        .getRawOne();
+
+      if (!product) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
+      }
+
+      if (product.p_user_id !== userId) {
+        return {
+          success: false,
+          message: 'No tienes permiso para modificar este producto',
+          code: 403,
+        };
+      }
+      const nuevoStock = product.p_stock + delta;
+
+      if(nuevoStock < 0){
+        return { success: false, message: 'El stock no puede ser menor a 0', code: 400 };
+      }
+
+      await this.productRepository.update(productId, { stock: nuevoStock });
+
+      return {
+        success: true,
+        data: nuevoStock
+      };
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+  
+  // PUT: /
+  async updateProduct(userId: string, product: UpdateProductDto): Promise<SuccessDto<ProductDto>> {
+    try {
+      const existing = await this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .where('p.id = :id', { id: product.id })
+        .andWhere('m.deleted_by IS NULL')
+        .select(['p.user_id'])
+        .getRawOne();
+
+      if (!existing) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
+      }
+
+      if (existing.p_user_id !== userId) {
+        return {
+          success: false,
+          message: 'No tienes permiso para modificar este producto',
+          code: 403,
+        };
+      }
+
+      const updateData: any = {};
+
+      const keys = [
+        'title',
+        'description',
+        'category',
+        'price',
+        'discountPercentage',
+        'stock',
+        'brand',
+        'weight',
+        'physical',
+        'warrantyInformation',
+        'shippingInformation',
+        'tags',
+        'images',
+        'thumbnail',
+      ];
+
+      for (const key of keys) {
+        if (product[key] !== undefined) {
+          updateData[key] = product[key];
+        }
+      }
+
+      if (product.category !== undefined) {
+        const category = await this.categoryRepository.findOne({
+          where: { slug: product.category },
+        });
+
+        if (!category) {
+          return {
+            success: false,
+            message: 'Categoría no encontrada',
+            code: 400,
+          };
+        }
+
+        updateData.category = { id: category.id };
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return { success: false, message: 'No hay campos para actualizar', code: 400 };
+      }
+
+      await this.productRepository.update(product.id, updateData);
+
+      const updated = await this.getProductById(product.id)
+
+      return updated
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
+  }
+
+  // POST: /
+  async createProduct(
+    userId: string,
+    product: CreateProductDto
+  ): Promise<SuccessDto<ProductDto>> {
+    try {
+      const discount = product.discountPercentage ?? 0;
+      const warranty = product.warrantyInformation ?? null;
+      const shipping = product.shippingInformation ?? null;
+      const tags = product.tags ?? null;
+      const images = product.images ?? null;
+      const thumbnail = product.thumbnail ?? null;
+
+      const result = await this.productRepository.query(
+        `
+        CALL create_full_product(
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
+        `,
+        [
+          userId,
+          product.title,
+          product.description,
+          product.price,
+          discount,
+          product.stock,
+          product.brand,
+          product.weight,
+          warranty,
+          shipping,
+          product.category,   
+          thumbnail,
+          product.physical,
+          JSON.stringify(tags),
+          JSON.stringify(images),
+        ]
+      );
+
+      const createdRaw = result?.[0]?.[0];
+
+      if (!createdRaw) {
+        return {
+          success: false,
+          message: 'No se pudo crear el producto',
+          code: 500,
+        };
+      }
+
+      const created = await this.getProductById(createdRaw.id);
+      return created;
+
+    } catch (err: any) {
+      if (err?.sqlMessage === 'Category not found') {
+        return {
+          success: false,
+          message: 'Categoría no encontrada',
+          code: 400,
+        };
+      }
+      return{
+        success: false, 
+        message: err?.message ?? 'Error conectando a la base mde datos de productos',
+        code: 500
+      };
+    }
+  }
+
+  // DELETE: /:id
+  async deleteProduct(userId: string, productId: string): Promise<SuccessDto<void>> {
+    try{
+      const product = await this.productRepository.findOne({
+        where: { id: productId }
+      });
+
+      if (!product) {
+        return {
+          success: false,
+          code: 404,
+          message: 'Producto no encontrado',
+        };
+      }
+
+      if (product.userId !== userId) {
+        return {
+          success: false,
+          code: 403,
+          message: 'No tenés permisos para eliminar este producto',
+        };
+      }
+      
+      await this.productRepository.delete(productId);
+      return {
+        success: true,
+        message: 'Producto eliminado correctamente',
+      };
+    }catch(err){
+      return{
+        success: false, 
+        message: err?.message ?? 'Error conectando a la base mde datos de productos',
+        code: 500
+      };
+    }
+  }  
+
   // POST: /calculateRating
-  async calculateRating(): Promise<SuccessDto<null>> {
+  async calculateRating(): Promise<SuccessDto<void>> {
     try {
       await this.productRepository.query(`
         UPDATE product p
@@ -414,29 +631,34 @@ export class ProductService {
 
       return { success: true };
     } catch (err) {
-      throw new RpcException(err.message || 'Error recalculando promedios de productos');
+      return{
+        success: false, 
+        message: err?.message ?? 'Error conectando a la base mde datos de productos',
+        code: 500
+      };
     }
   }
 
-  // GET: /reviews/:userId
-  async getReviews(userId: string): Promise<SuccessDto<ReviewDto[]>> {
+  // GET: /reviews/user
+  async getAccountReviews(userId: string): Promise<SuccessDto<ReviewDto[]>> {
     try {
-    const reviews = await this.reviewRepository.find({
-      where: { userId },
-      relations: ['product'],
-      order: { created: 'DESC' },
-    });
+      const reviews = await this.reviewRepository
+        .createQueryBuilder('review')
+        .where('review.userId = :userId', { userId })
+        .orderBy('review.created', 'DESC')
+        .getMany();
 
-    if (!reviews.length)
-      return { success: false, message: 'El usuario no tiene reseñas registradas' };
-
-    return {
-      success: true,
-      data: reviews.map((r) => ReviewDto.fromEntity(r)),
-    };
-  } catch (err) {
-    throw new RpcException(err.message || 'Error obteniendo reseñas del usuario');
-  }
+      return {
+        success: true,
+        data: reviews.map(ReviewDto.fromEntity) 
+      };
+    } catch (err) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener las reviews'
+      };
+    }
   }
 }
 

@@ -11,8 +11,8 @@ export class Meta {
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
-  @BinaryUuidColumn({ name: 'account_id', unique: true })
-  accountId: string;
+  @BinaryUuidColumn({ name: 'account_id', nullable: true })
+  accountId: string | null;
 
   @CreateDateColumn({ type: 'datetime' })
   created: Date;
@@ -33,13 +33,13 @@ export class Meta {
   @JoinColumn({ name: 'role_id' })
   role: Role;
 
-  @Column({ type: 'tinyint', unsigned: true, name: 'role_id' })
-  roleId: number;
+  @Column({ type: 'tinyint', unsigned: true, name: 'role_id', nullable: true })
+  roleId: number | null;
 
   @ManyToOne(() => Status, (status) => status.metas)
   @JoinColumn({ name: 'status_id' })
   status: Status;
 
-  @Column({ type: 'tinyint', unsigned: true, name: 'status_id' })
-  statusId: number;
+  @Column({ type: 'tinyint', unsigned: true, name: 'status_id', nullable: true })
+  statusId: number | null;
 }

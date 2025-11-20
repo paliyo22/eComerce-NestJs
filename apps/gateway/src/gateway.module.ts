@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { CartController, OrderController, ProductController, UserController } from './controller';
-import { ProductService, UserService, CartService, OrderService } from './service';
 import { ConfigModule } from '@nestjs/config';
+import { CartController } from './cart/cart.controller';
+import { CartService } from './cart/cart.service';
+import { OrderController } from './order/order.controller';
+import { OrderService } from './order/order.service';
+import { ProductController } from './product/product.controller';
+import { ProductService } from './product/product.service';
+import { AccountController } from './account/account.controller';
+import { AccountService } from './account/account.service';
 
 
 @Module({
@@ -18,7 +24,7 @@ import { ConfigModule } from '@nestjs/config';
         options: { port: 3001 }
       },
       {
-        name: 'USER_SERVICE',
+        name: 'ACCOUNT_SERVICE',
         transport: Transport.TCP,
         options: { port: 3002 }
       },
@@ -35,11 +41,11 @@ import { ConfigModule } from '@nestjs/config';
     ])
   ],
   controllers: [
-    ProductController, UserController,
+    ProductController, AccountController,
     CartController, OrderController
   ],
   providers: [
-    ProductService, UserService,
+    ProductService, AccountService,
     CartService, OrderService
   ],
 })

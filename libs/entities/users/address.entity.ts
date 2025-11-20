@@ -1,11 +1,11 @@
-import { BinaryUuidColumn } from "libs/shared";
-import { Entity, PrimaryGeneratedColumn, ManyToOne, JoinColumn, OneToOne, Column } from "typeorm";
+import { BinaryUuidColumn, PrimaryBinaryUuidColumn } from "libs/shared";
+import { Entity, ManyToOne, JoinColumn, OneToOne, Column } from "typeorm";
 import { Account, Store } from ".";
 
 @Entity('address')
 export class Address {
-  @PrimaryGeneratedColumn({ unsigned: true })
-  id: number;
+  @PrimaryBinaryUuidColumn()
+  id: string;
 
   @ManyToOne(() => Account, (account) => account.addresses, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'account_id' })
@@ -18,14 +18,14 @@ export class Address {
   @JoinColumn({ name: 'store_id' })
   store: Store;
 
-  @BinaryUuidColumn({ name: 'store_id', nullable: true, unique: true })
+  @BinaryUuidColumn({ name: 'store_id', nullable: true})
   storeId: string | null;
 
   @Column({ type: 'varchar', length: 100 })
   address: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  apartment: string;
+  apartment: string | null;
 
   @Column({ type: 'varchar', length: 100 })
   city: string;

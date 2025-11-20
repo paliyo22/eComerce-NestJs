@@ -49,9 +49,6 @@ export class Product {
   @JoinColumn({ name: 'category_id' })
   category: Category;
 
-  @Column({ type: 'tinyint', unsigned: true, name: 'category_id', insert: false, update: false })
-  categoryId: number;
-
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail?: string;
 
