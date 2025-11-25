@@ -14,7 +14,8 @@ export class AccountOutputDto implements Partial<AccountDto>{
             businessProfile: account.businessProfile,
             adminProfile: account.adminProfile,
             address: account.address,
-            store: account.store
+            store: account.store,
+            status: account.status
         };
     }
 }
@@ -22,10 +23,11 @@ export class AccountOutputDto implements Partial<AccountDto>{
 export class PartialAccountOutputDto implements Partial<PartialAccountDto>{
 
     static fromEntity(account: PartialAccountDto): PartialAccountOutputDto {
-            return{
-                email: account.email,
-                username: account.username,
-                role: account.role,
-            }
+        return{
+            email: account.email,
+            username: account.username,
+            role: account.role,
+            status: account.status
         }
+    }
 }

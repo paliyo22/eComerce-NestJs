@@ -1,9 +1,9 @@
-import { Address } from "libs/entities/users";
+import { Address } from "apps/account/src/entities";
 
 export class AddressDto {
     id: string;
     address: string;
-    apartment: string;
+    apartment?: string;
     city: string;
     zip: string;
     country: string;   
@@ -12,7 +12,7 @@ export class AddressDto {
         return {
             id: address.id,
             address: address.address,
-            apartment: address.apartment,
+            apartment: address.apartment || undefined,
             city: address.city,
             zip: address.zip,
             country: address.country

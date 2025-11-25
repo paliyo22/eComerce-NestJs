@@ -1,4 +1,5 @@
 import { IsEmail, IsNotEmpty, IsString } from "class-validator";
+import { ERole } from "libs/shared/role-enum";
 
 
 export class CreateAccountDto {
@@ -16,5 +17,5 @@ export class CreateAccountDto {
 
     @IsString()
     @IsNotEmpty()
-    role: string;
+    role: ERole;
 }

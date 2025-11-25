@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { PartialProductDto, ProductDto, CreateProductDto, UpdateProductDto } from 'libs/dtos/product';
 import { SuccessDto } from 'libs/shared/respuesta';
 import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
-import { Product, Category, Tag, Meta, Image, Review } from 'libs/entities/products';
+import { Product, Category, Tag, Meta, Image, Review } from 'apps/product/src/entities';
 import { Repository } from 'typeorm';
 
 

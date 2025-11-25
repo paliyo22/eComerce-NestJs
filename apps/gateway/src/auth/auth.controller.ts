@@ -1,9 +1,8 @@
 import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ERole } from 'libs/shared/role-enum';
 import type { Response } from 'express';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { JwtRefreshGuard } from '../guards/jwt-refresh.guard';
+import { AuthDto } from './auth-dto';
 
 @Controller('auth')
 export class AuthController {
@@ -14,7 +13,7 @@ export class AuthController {
     async logIn(
         @Body('auth') auth: { account: string; password: string },
         @Res({ passthrough: true }) res: Response
-    ): Promise<{ username: string; role: ERole }> {
+    ): Promise<AuthDto> {
         const { partialAccount, jwtAccess } = await this.authService.logIn(
             auth.account,
             auth.password
@@ -31,10 +30,7 @@ export class AuthController {
             sameSite: 'lax',
             maxAge: 1000 * 60 * 60 * 24
         });
-        return {
-            username: partialAccount.username,
-            role: partialAccount.role,
-        };
+        return AuthDto.fromEntity(partialAccount);
     };
 
     @Post('/logout')
@@ -53,11 +49,11 @@ export class AuthController {
     async refresh(
         @Req() req,
         @Res({ passthrough: true }) res: Response
-    ): Promise<string> {
+    ): Promise<AuthDto> {
         const refreshToken = req.user.refreshToken;
         const userId = req.user.userId;
 
-        const { message, jwtAccess, jwtRefresh } = await this.authService.refresh(userId, refreshToken);
+        const { partialAccount, jwtAccess, jwtRefresh } = await this.authService.refresh(userId, refreshToken);
         res.cookie('accessToken', jwtAccess, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
@@ -71,6 +67,6 @@ export class AuthController {
             maxAge: 1000 * 60 * 60 * 24
         });
 
-        return message;
+        return AuthDto.fromEntity(partialAccount);
     }
 }

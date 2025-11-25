@@ -3,7 +3,7 @@ import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { userEntities } from 'libs/entities/users/list';
+import { userEntities } from 'apps/account/src/entities/list';
 
 @Module({
   imports: [

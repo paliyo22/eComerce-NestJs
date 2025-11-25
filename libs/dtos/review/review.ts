@@ -1,4 +1,4 @@
-import { Review } from "libs/entities/products/review.entity";
+import { Review } from "apps/product/src/entities/review.entity";
 import { AccountDto } from "../acount";
 
 export class ReviewDto{

@@ -1,4 +1,4 @@
-import { Product } from "libs/entities/products/product.entity";
+import { Product } from "apps/product/src/entities/product.entity";
 import { ReviewDto } from "../review";
 import { PartialProductDto } from "./partialProduct";
 

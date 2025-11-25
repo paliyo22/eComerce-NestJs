@@ -1,4 +1,4 @@
-import { Account } from "libs/entities/users";
+import { Account } from "apps/account/src/entities";
 import { ERole } from "libs/shared/role-enum";
 
 export class PartialAccountDto {
@@ -15,7 +15,7 @@ export class PartialAccountDto {
             email: account.email,
             username: account.username,
             role: account.meta.role.slug as ERole,
-            status: account.meta.status.name,
+            status: account.meta.status.slug,
             refreshToken: refreshToken
         }
     }

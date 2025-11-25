@@ -1,20 +1,21 @@
 import { IsEmail, IsNotEmpty, IsOptional, IsString } from "class-validator";
-import { CreateAccountDto } from "./createAcount";
+import { CreateAccountDto } from "./create-acount";
 
-export class CreateBussinessDto extends CreateAccountDto{
+
+export class CreateBusinessDto extends CreateAccountDto{
     @IsString()
     @IsNotEmpty()
     title: string;
 
-    @IsString()
     @IsOptional()
+    @IsString()
     bio?: string;
 
     @IsString()
     @IsNotEmpty()
     phone: string;
 
-    @IsEmail()
     @IsOptional()
+    @IsEmail()
     contactEmail?: string;
 }

@@ -1,8 +1,9 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString } from "class-validator";
 import { UpdateAccountDto } from "./update-account";
 
 export class UpdateAdminDto extends UpdateAccountDto {
-    @IsString()
     @IsOptional()
+    @IsString()
+    @IsNotEmpty()
     publicName?: string;
 }

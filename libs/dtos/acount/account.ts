@@ -1,4 +1,4 @@
-import { Account } from "libs/entities/users";
+import { Account } from "apps/account/src/entities";
 import { AddressDto } from "../address/address";
 import { StoreDto } from "../store";
 import { UserProfileDto } from "./user";

@@ -1,4 +1,4 @@
-import { Store } from "libs/entities/users";
+import { Store } from "apps/account/src/entities";
 import { AddressDto } from "../address/address";
 
 export class StoreDto {

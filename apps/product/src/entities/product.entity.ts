@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToOne, JoinColumn, JoinTable, ManyToMany, OneToMany, PrimaryColumn, OneToOne } from "typeorm";
+import { Entity, Column, ManyToOne, JoinColumn, JoinTable, ManyToMany, OneToMany, PrimaryColumn, OneToOne, Check } from "typeorm";
 import { Category } from "./category.entity";
 import { Tag } from "./tag.entity";
 import { Meta } from "./meta.entity";
@@ -7,6 +7,7 @@ import { Image } from "./image.entity";
 import { BinaryUuidColumn } from "libs/shared/binary-uuid.decorator";
 import { PrimaryBinaryUuidColumn } from "libs/shared/primari-binary.decorator";
 
+@Check('discount_percentage BETWEEN 0 AND 100')
 @Entity('product')
 export class Product {
   @PrimaryBinaryUuidColumn({ name: 'id' })

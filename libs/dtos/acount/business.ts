@@ -1,4 +1,4 @@
-import { BusinessProfile } from "libs/entities/users";
+import { BusinessProfile } from "apps/account/src/entities";
 
 export class BusinessProfileDto {
     title: string;

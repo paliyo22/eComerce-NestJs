@@ -77,7 +77,7 @@ export class AuthService {
     }
 
     async refresh(userId: string, refreshToken: string): Promise<{ 
-        message: string, jwtAccess: string, jwtRefresh: string
+        partialAccount: PartialAccountDto, jwtAccess: string, jwtRefresh: string
     }> {
         try {
         const result = await firstValueFrom(
@@ -91,13 +91,9 @@ export class AuthService {
             throw new HttpException(result.message!, result.code!);
         }
 
-        const message = result.message!;
-
         const jwtAccess = await this.generateJwt(result.data!);
 
-        const jwtRefresh = result.data!.refreshToken!;
-
-        return { message, jwtAccess, jwtRefresh };
+        return { partialAccount: result.data!, jwtAccess, jwtRefresh: result.data!.refreshToken! };
 
         } catch (err) {
             if (err?.message && err?.code) {

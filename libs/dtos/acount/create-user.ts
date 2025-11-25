@@ -1,5 +1,6 @@
-import { IsDate, IsDateString, IsNotEmpty, IsOptional, IsString } from "class-validator";
-import { CreateAccountDto } from "./createAcount";
+import { IsDateString, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { CreateAccountDto } from "./create-acount";
+
 
 export class CreateUserDto extends CreateAccountDto {
     @IsString()
@@ -10,11 +11,11 @@ export class CreateUserDto extends CreateAccountDto {
     @IsNotEmpty()
     lastname: string;
 
-    @IsDateString()
     @IsOptional()
+    @IsDateString()
     birth?: string;
 
-    @IsString()
     @IsOptional()
+    @IsString()
     phone?: string;
 }

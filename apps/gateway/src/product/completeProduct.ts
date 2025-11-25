@@ -1,9 +1,10 @@
-import { ProductDto } from "./product";
-import { AccountDto } from "../acount";
+import { AccountDto } from "libs/dtos/acount";
+import { ProductDto } from "libs/dtos/product";
+import { ReviewDto } from "libs/dtos/review";
 import { getRoleGroup, ERole, RoleGroup } from "libs/shared/role-enum";
-import { ReviewDto } from "../review";
 
-export class CompleteProductDto extends ProductDto {
+
+export class ProductOutputDto extends ProductDto {
   accountName: string;
   contactPhone: string;
   contactEmail: string;
@@ -16,7 +17,7 @@ export class CompleteProductDto extends ProductDto {
   }[];
 
   static fromEntities(product: ProductDto, account: AccountDto, reviewsUsers: AccountDto[]): CompleteProductDto {
-    const result = Object.assign(new CompleteProductDto(), product);
+    const result = Object.assign(new ProductOutputDto(), product);
 
     if (getRoleGroup(account.role) === RoleGroup[ERole.Business]) {
       result.accountName = account.businessProfile!.title;
@@ -29,10 +30,10 @@ export class CompleteProductDto extends ProductDto {
       result.contactEmail = account.email;
     }
     result.store = account.store?.map((s) => ({
-    address: s.address.address,
-    city: s.address.city,
-    country: s.address.country,
-    phone: s.phone,
+      address: s.address.address,
+      city: s.address.city,
+      country: s.address.country,
+      phone: s.phone,
     }));
 
     if (product.reviews?.length) {
@@ -42,3 +43,5 @@ export class CompleteProductDto extends ProductDto {
     return result;
   } 
 }
+
+let aux: ProductOutputDto

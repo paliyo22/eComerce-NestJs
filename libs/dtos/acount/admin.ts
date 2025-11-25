@@ -1,4 +1,4 @@
-import { AdminProfile } from "libs/entities/users";
+import { AdminProfile } from "apps/account/src/entities";
 
 export class AdminProfileDto {
     publicName: string;

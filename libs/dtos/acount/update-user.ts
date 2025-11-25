@@ -1,20 +1,22 @@
-import { IsDateString, IsOptional, IsString } from "class-validator";
+import { IsDateString, IsNotEmpty, IsOptional, IsString, ValidateIf } from "class-validator";
 import { UpdateAccountDto } from "./update-account";
 
 export class UpdateUserDto extends UpdateAccountDto {
-    @IsString()
     @IsOptional()
+    @IsString()
+    @IsNotEmpty()
     firstname?: string;
     
-    @IsString()
     @IsOptional()
+    @IsString()
+    @IsNotEmpty()
     lastname?: string;
 
-    @IsDateString()
     @IsOptional()
+    @IsDateString()
     birth?: string;
 
-    @IsString()
     @IsOptional()
-    phone?: string;
+    @IsString()
+    phone?: string | null;
 }

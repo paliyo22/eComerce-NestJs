@@ -1,4 +1,4 @@
-import { UserProfile } from "libs/entities/users";
+import { UserProfile } from "apps/account/src/entities";
 
 export class UserProfileDto {
     firstname: string;

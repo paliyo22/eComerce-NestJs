@@ -1,4 +1,4 @@
-import { Meta } from "libs/entities/users";
+import { Meta } from "apps/account/src/entities";
 
 export class MetaDto {
     created: Date;
