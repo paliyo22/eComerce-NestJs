@@ -1,11 +1,18 @@
 import { BinaryUuidColumn, PrimaryBinaryUuidColumn } from "libs/shared";
-import { Column, CreateDateColumn, Entity, OneToMany } from "typeorm";
+import { BeforeInsert, Column, CreateDateColumn, Entity, OneToMany } from "typeorm";
 import { OrderItem } from "./order-item";
+import { v4 as uuid } from 'uuid';
 
 @Entity('purchase_order')
 export class PurchaseOrder {
     @PrimaryBinaryUuidColumn()
-    id?: string;
+    id: string;
+    @BeforeInsert()
+    generateId() {
+        if (!this.id) {
+        this.id = uuid();
+        }
+    }
 
     @BinaryUuidColumn({ name: 'user_id' })
     userId: string;

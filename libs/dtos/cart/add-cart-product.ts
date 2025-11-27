@@ -1,19 +1,20 @@
 import { PartialProductDto } from "../product";
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from "class-validator";
 
 export class AddProductToCartDto {
-    cartId?: string;
+    @IsNotEmpty()
+    @IsUUID()
     productId: string;
-    title: string;
-    price: number;
-    amount: number;
 
-    static fromEntity(product: PartialProductDto, amount: number, cartId?: string): AddProductToCartDto {
-        return {
-            cartId: cartId,
-            productId: product.id,
-            title: product.title,
-            price: product.price,
-            amount: amount
-        };
-    }
+    @IsNotEmpty()
+    @IsString()
+    title: string;
+
+    @IsNotEmpty()
+    @IsNumber()
+    price: number;
+
+    @IsNotEmpty()
+    @IsInt()
+    amount: number;
 }

@@ -22,9 +22,9 @@ export class AccountController {
         return this.accountService.getInfo(req.user.userId);
     }
 
-    @Post()
-    async addAccount(
-        @Body('account', new ValidationPipe({whitelist: true, transform: true})) account: CreateUserDto | CreateAdminDto | CreateBusinessDto,
+    @Post('/admin')
+    async addAdmin(
+        @Body('account') account: CreateAdminDto,
         @Res({ passthrough: true }) res: Response
     ): Promise<AuthDto> {
         const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
@@ -43,10 +43,70 @@ export class AccountController {
         return AuthDto.fromEntity(partialAccount);
     }
 
-    @Put()
+    @Post('/business')
+    async addBusiness(
+        @Body('account') account: CreateBusinessDto,
+        @Res({ passthrough: true }) res: Response
+    ): Promise<AuthDto> {
+        const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
+        res.cookie('accessToken', jwtAccess, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 1000 * 60 * 60
+        });
+        res.cookie('refreshToken', partialAccount.refreshToken!, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 1000 * 60 * 60 * 24
+        });
+        return AuthDto.fromEntity(partialAccount);
+    }
+
+    @Post('/user')
+    async addUser(
+        @Body('account') account: CreateUserDto,
+        @Res({ passthrough: true }) res: Response
+    ): Promise<AuthDto> {
+        const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
+        res.cookie('accessToken', jwtAccess, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 1000 * 60 * 60
+        });
+        res.cookie('refreshToken', partialAccount.refreshToken!, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 1000 * 60 * 60 * 24
+        });
+        return AuthDto.fromEntity(partialAccount);
+    }
+
+    @Put('/admin')
     @UseGuards(JwtAuthGuard)
-    async updateAccount(
-        @Body('account', new ValidationPipe({whitelist: true, transform: true})) account: UpdateAdminDto | UpdateBusinessDto | UpdateUserDto,
+    async updateAdmin(
+        @Body('account') account: UpdateAdminDto,
+        @Req() req
+    ): Promise<AccountOutputDto> {
+        return this.accountService.updateAccount(req.user.userId, account, req.user.role);
+    }
+
+    @Put('/business')
+    @UseGuards(JwtAuthGuard)
+    async updateBusiness(
+        @Body('account') account: UpdateBusinessDto,
+        @Req() req
+    ): Promise<AccountOutputDto> {
+        return this.accountService.updateAccount(req.user.userId, account, req.user.role);
+    }
+
+    @Put('/user')
+    @UseGuards(JwtAuthGuard)
+    async updateUser(
+        @Body('account') account: UpdateUserDto,
         @Req() req
     ): Promise<AccountOutputDto> {
         return this.accountService.updateAccount(req.user.userId, account, req.user.role);
@@ -55,7 +115,7 @@ export class AccountController {
     @Post('/address')
     @UseGuards(JwtAuthGuard)
     async addAddress(
-        @Body('address', new ValidationPipe({whitelist: true, transform: true})) address: CreateAddressDto,
+        @Body('address') address: CreateAddressDto,
         @Req() req
     ): Promise<AddressDto[]> {
         return this.accountService.addAddress(req.user.userId, address);
@@ -64,7 +124,7 @@ export class AccountController {
     @Post('/store')
     @UseGuards(JwtAuthGuard)
     async addStore(
-        @Body('store', new ValidationPipe({whitelist: true, transform: true})) store: CreateStoreDto,
+        @Body('store') store: CreateStoreDto,
         @Req() req
     ): Promise<StoreDto[]> {
         return this.accountService.addStore(req.user.userId, store);

@@ -16,12 +16,12 @@ export class AuthService {
         const payload = {
             userId: account.id,
             email: account.email,
-            role: account.role,
+            role: account.role
         };
 
         return sign (
             payload, 
-            process.env.JWT_SECRET!,
+            String(process.env.JWT_SECRET),
             { expiresIn: '1h' }
         );
     }
@@ -46,8 +46,8 @@ export class AuthService {
         return { partialAccount, jwtAccess };
 
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }
@@ -69,8 +69,8 @@ export class AuthService {
         return result.message!;
 
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }
@@ -96,8 +96,8 @@ export class AuthService {
         return { partialAccount: result.data!, jwtAccess, jwtRefresh: result.data!.refreshToken! };
 
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }

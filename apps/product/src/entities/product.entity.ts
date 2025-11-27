@@ -1,17 +1,24 @@
-import { Entity, Column, ManyToOne, JoinColumn, JoinTable, ManyToMany, OneToMany, PrimaryColumn, OneToOne, Check } from "typeorm";
+import { Entity, Column, ManyToOne, JoinColumn, JoinTable, ManyToMany, OneToMany, OneToOne, Check, BeforeInsert } from "typeorm";
 import { Category } from "./category.entity";
 import { Tag } from "./tag.entity";
 import { Meta } from "./meta.entity";
 import { Review } from "./review.entity";
 import { Image } from "./image.entity";
 import { BinaryUuidColumn } from "libs/shared/binary-uuid.decorator";
-import { PrimaryBinaryUuidColumn } from "libs/shared/primari-binary.decorator";
+import { PrimaryBinaryUuidColumn } from "libs/shared";
+import { v4 as uuid } from 'uuid';
 
 @Check('discount_percentage BETWEEN 0 AND 100')
 @Entity('product')
 export class Product {
-  @PrimaryBinaryUuidColumn({ name: 'id' })
+  @PrimaryBinaryUuidColumn()
   id: string;
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = uuid();
+    }
+  }
 
   @BinaryUuidColumn({ name: 'user_id' })
   userId: string;
@@ -38,10 +45,10 @@ export class Product {
   weight: number;
 
   @Column({ type: 'varchar', length: 250, nullable: true, name: 'warranty_info' })
-  warrantyInfo?: string;
+  warrantyInfo?: string | null;
 
   @Column({ type: 'varchar', length: 250, nullable: true, name: 'shipping_info' })
-  shippingInfo?: string;
+  shippingInfo?: string | null; 
 
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0, name: 'rating_avg' })
   ratingAvg: number;
@@ -51,7 +58,7 @@ export class Product {
   category: Category;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
-  thumbnail?: string;
+  thumbnail?: string | null;
 
   @Column({ type: 'boolean', default: true })
   physical: boolean;

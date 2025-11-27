@@ -21,7 +21,7 @@ export class AccountDto extends PartialAccountDto{
             username: account.username,
             meta: MetaDto.fromEntity(account.meta),
             role: account.meta.role.slug as ERole,
-            status: account.meta.status.name,
+            status: account.meta.status.slug,
             userProfile: account.userProfile? UserProfileDto.fromEntity(account.userProfile): undefined,
             businessProfile: account.businessProfile? BusinessProfileDto.fromEntity(account.businessProfile): undefined,
             adminProfile: account.adminProfile? AdminProfileDto.fromEntity(account.adminProfile): undefined,

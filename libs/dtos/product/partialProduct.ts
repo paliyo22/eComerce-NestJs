@@ -25,7 +25,7 @@ export class PartialProductDto {
             brand: product.brand,
             tags: product.tags? product.tags.map(t => t.title): undefined,
             images: product.images? product.images.map(i => i.link): undefined,
-            thumbnail: product.thumbnail || undefined
+            thumbnail: product.thumbnail ?? undefined
         };
     }
 }

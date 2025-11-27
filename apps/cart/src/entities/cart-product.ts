@@ -1,19 +1,14 @@
-import { uuidTransformer } from "libs/shared";
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from "typeorm";
+import { PrimaryBinaryUuidColumn } from "libs/shared";
+import { Check, Column, Entity, JoinColumn, ManyToOne } from "typeorm";
 import { Cart } from "./cart";
 
+@Check('discount_percentage BETWEEN 0 AND 100')
 @Entity('cart_x_product')
 export class CartProduct {
-    @PrimaryColumn({
-    name: 'cart_id', type: 'binary',
-    length: 16, transformer: uuidTransformer
-    })
+    @PrimaryBinaryUuidColumn({ name: 'cart_id' })
     cartId: string;
 
-    @PrimaryColumn({
-    name: 'product_id', type: 'binary',
-    length: 16, transformer: uuidTransformer
-    })
+    @PrimaryBinaryUuidColumn({ name: 'product_id' })
     productId: string;
 
     @Column({ type: 'varchar', length: 250 })
@@ -24,6 +19,9 @@ export class CartProduct {
 
     @Column({ type: 'smallint', unsigned: true })
     amount: number;
+
+    @Column({ type: 'int', default: 0, name: 'discount_percentage' })
+    discountPercentage: number;
 
     @ManyToOne(() => Cart, (cart) => cart.cartProducts, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'cart_id' })

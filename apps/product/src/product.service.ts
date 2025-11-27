@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { PartialProductDto, ProductDto, CreateProductDto, UpdateProductDto } from 'libs/dtos/product';
 import { SuccessDto } from 'libs/shared/respuesta';
 import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
-import { Product, Category, Tag, Meta, Image, Review } from 'apps/product/src/entities';
-import { Repository } from 'typeorm';
+import { Product, Category, Review, Tag, Image, Meta } from 'apps/product/src/entities';
+import { In, Repository } from 'typeorm';
 
 
 @Injectable()
@@ -19,51 +19,79 @@ export class ProductService {
 
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
+
+    @InjectRepository(Tag)
+    private readonly tagRepository: Repository<Tag>,
+
+    @InjectRepository(Image)
+    private readonly imageRepository: Repository<Image>,
+
+    @InjectRepository(Meta)
+    private readonly metaRepository: Repository<Meta>    
   ) {};
 
-  // GET: /total
   async getTotal(category?: string): Promise<SuccessDto<number>> {
     try {
-      let sql: string;
-      let params: any[] = [];
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .where('m.deleted_by IS NULL');
 
-      if (!category) {
-        sql = `
-          SELECT COUNT(*) AS total
-          FROM product p
-          INNER JOIN meta m ON p.id = m.product_id
-          WHERE m.deleted_by IS NULL
-        `;
-      } else {
-        sql = `
-          SELECT COUNT(*) AS total
-          FROM product p
-          INNER JOIN meta m ON p.id = m.product_id
-          INNER JOIN category c ON p.category_id = c.id
-          WHERE m.deleted_by IS NULL
-            AND c.slug = ?
-        `;
-        params = [category];
+      if (category) {
+        qb.innerJoin('p.category', 'c')
+          .andWhere('c.slug = :category', { category });
       }
 
-      const result = await this.productRepository.query(sql, params);
+      const total = await qb.getCount();
 
       return {
         success: true,
-        data: Number(result[0].total)
+        data: total
       };
-
     } catch (err) {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al obtener total'
       };
     }
   }
 
-  // GET: /
-  async getProductList(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getProductList(userId?: string, limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const qb = this.productRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i');
+
+      if (!userId) {
+        qb.where('m.deleted_by IS NULL')
+          .orderBy('p.rating_avg', 'DESC')
+          .limit(limit ?? 20)
+          .offset(offset ?? 0);
+      } else {
+        qb.where('p.user_id = :userId', { userId })
+          .orderBy('m.created', 'DESC');
+      }
+
+      const products = await qb.getMany();
+
+      return {
+        success: true,
+        data: products.map(PartialProductDto.fromEntity)
+      };
+    } catch (err) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener lista de productos'
+      };
+    }
+  }
+
+  async getProductByCategory(category: string, limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const qb = this.productRepository
         .createQueryBuilder('p')
@@ -72,56 +100,26 @@ export class ProductService {
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
         .where('m.deleted_by IS NULL')
+        .andWhere('c.slug = :category', { category })
         .orderBy('p.title', 'DESC')
         .limit(limit ?? 20)
         .offset(offset ?? 0);
 
-      const product = await qb.getMany()
+      const products = await qb.getMany();
 
       return {
         success: true,
-        data: product.map(p => PartialProductDto.fromEntity(p))
+        data: products.map(PartialProductDto.fromEntity)
       };
     } catch (err) {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al obtener productos por categoría'
       };
     }
   }
 
-  // GET: /:category
-  async getProductByCategory(category: string, limit?: number, offset?:number): Promise<SuccessDto<PartialProductDto[]>> {
-    try {
-      const qb = this.productRepository
-        .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
-        .innerJoinAndSelect('p.category', 'c')
-        .leftJoinAndSelect('p.tags', 't')
-        .leftJoinAndSelect('p.images', 'i')
-        .where('m.deleted_by IS NULL')
-        .andWhere('c.slug = :slug', { slug: category })
-        .orderBy('p.title', 'DESC')
-        .limit(limit ?? 20)
-        .offset(offset ?? 0);
-
-      const product = await qb.getMany(); 
-
-      return {
-        success: true,
-        data: product.map((p) => PartialProductDto.fromEntity(p)),
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
-      };
-    }
-  }
-
-  // GET: /featured
   async getFeatured(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const qb = this.productRepository
@@ -133,84 +131,81 @@ export class ProductService {
         .where('m.deleted_by IS NULL')
         .andWhere('p.stock > 0')
         .orderBy('p.rating_avg', 'DESC')
-        .limit(limit ?? 20)
+        .limit(limit ?? 7)
         .offset(offset ?? 0);
 
-      const product = await qb.getMany();
+      const products = await qb.getMany();
 
       return {
         success: true,
-        data: product.map(p => PartialProductDto.fromEntity(p))
+        data: products.map(PartialProductDto.fromEntity)
       };
     } catch (err) {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al obtener productos destacados'
       };
     }
   }
 
-  // GET: /:productId
   async getProductById(productId: string): Promise<SuccessDto<ProductDto>> {
     try {
       const qb = this.productRepository
         .createQueryBuilder('p')
-        .leftJoinAndSelect('p.meta', 'm')
-        .leftJoinAndSelect('p.category', 'c')
+        .innerJoinAndSelect('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
-        .where('p.id = :id', {id: productId});
+        .leftJoinAndSelect('p.reviews', 'r')
+        .where('p.id = UUID_TO_BIN(:id)', { id: productId });
 
       const product = await qb.getOne();
 
       if (!product) {
-        return { success: false, message: 'Producto no encontrado', code:400 };
+        return { success: false, message: 'Producto no encontrado', code: 400 };
       }
 
-      return { success: true, data: ProductDto.fromEntity(product) };
+      return {
+        success: true,
+        data: ProductDto.fromEntity(product)
+      };
+
     } catch (err) {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al obtener producto'
       };
     }
   }
 
-  // POST: /review
   async addReview(userId: string, data: CreateReviewDto): Promise<SuccessDto<ReviewDto[]>> {
     try {
-      const productExists = await this.productRepository.findOne({ where: { id: data.productId } });
-      if (!productExists) {
+      const exists = await this.productRepository.findOne({
+        where: { id: data.productId }
+      });
+
+      if (!exists) {
         return { success: false, message: 'Producto no encontrado', code: 400 };
       }
 
       await this.reviewRepository
-      .createQueryBuilder()
-      .insert()
-      .into(Review)
-      .values({
-        product: { id: data.productId },
-        userId,
-        rating: data.rating,
-        comment: data.comment ?? null
-      })
-      .execute();
+        .createQueryBuilder()
+        .insert()
+        .into(Review)
+        .values({
+          productId: data.productId,
+          userId,
+          rating: data.rating
+        })
+        .execute();
 
       const reviews = await this.reviewRepository
         .createQueryBuilder('r')
-        .select([
-          'r.rating',
-          'r.comment',
-          'r.created',
-          'r.userId',
-          'p.id AS productId' 
-        ])
-        .leftJoin('r.product', 'p')
-        .where('r.product_id = :productId', { productId: data.productId })
+        .where('r.product_id = UUID_TO_BIN(:productId)', { productId: data.productId })
         .orderBy('r.created', 'DESC')
-        .getRawMany(); // devuelve un objeto plano con los campos seleccionados
+        .getMany();
 
       return {
         success: true,
@@ -224,15 +219,20 @@ export class ProductService {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al crear review'
       };
     }
   }
 
-  // DELETE: /review/:productId
   async deleteReview(userId: string, productId: string): Promise<SuccessDto<void>> {
     try {
-      const result = await this.reviewRepository.delete({ userId, productId });
+      const result = await this.reviewRepository
+      .createQueryBuilder()
+      .delete()
+      .from(Review)
+      .where('user_id = UUID_TO_BIN(:userId)', { userId })
+      .andWhere('product_id = UUID_TO_BIN(:productId)', { productId })
+      .execute();
 
       if (result.affected === 0) {
         return {
@@ -256,9 +256,9 @@ export class ProductService {
     }
   }
 
-  // GET: /search
   async searchProduct(contains: string): Promise<SuccessDto<PartialProductDto[]>> {
     try {
+      contains = contains.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
       const qb = this.productRepository
         .createQueryBuilder('p')
         .innerJoin('p.meta', 'm')
@@ -266,7 +266,9 @@ export class ProductService {
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
         .where('m.deleted_by IS NULL')
-        .andWhere('LOWER(p.title) LIKE :text', { text: `%${contains.toLowerCase()}%` })
+        .andWhere('p.title LIKE :text', { text: `%${contains}%` })
+        .andWhere('p.description LIKE :text', { text: `%${contains}%` })
+        .andWhere('p.brand LIKE :text', { text: `%${contains}%` })
         .orderBy('p.title', 'ASC')
         .limit(20);
 
@@ -286,77 +288,43 @@ export class ProductService {
     }
   }
 
-  // GET: /:username
-  async accountProductList(userId: string): Promise<SuccessDto<PartialProductDto[]>> {
-    try {
-      const qb = this.productRepository
-        .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
-        .innerJoinAndSelect('p.category', 'c')
-        .leftJoinAndSelect('p.tags', 't')
-        .leftJoinAndSelect('p.images', 'i')
-        .where('m.deleted_by IS NULL')
-        .andWhere('m.created_by = :userId', { userId })
-        .orderBy('p.created', 'DESC');
-
-      const products = await qb.getMany();
-
-      return {
-        success: true,
-        data: products.map(p => PartialProductDto.fromEntity(p))
-      };
-
-    } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
-      };
-    }
-  }
-
-  // PATCH: /price/:productId
   async updatePrice(userId: string, productId: string, price: number): Promise<SuccessDto<void>> {
-    try {
-      const product = await this.productRepository
-        .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
-        .where('p.id = :productId', { productId })
-        .andWhere('m.deleted_by IS NULL')
-        .select('p.user_id')
-        .getRawOne();
+  try {
+    const product = await this.productRepository
+      .createQueryBuilder('p')
+      .leftJoin('p.meta', 'm')
+      .select('p.user_id', 'ownerId')
+      .addSelect('m.deleted_by', 'deletedBy')
+      .where('p.id = UUID_TO_BIN(:productId)', { productId })
+      .getRawOne();
 
-      if (!product) {
-        return { success: false, message: 'Producto no encontrado', code: 400 };
-      }
-
-      if (product.p_user_id !== userId) {
-        return { success: false, message: 'No tienes permiso para modificar este producto', code: 403 };
-      }
-
-      await this.productRepository.update(productId, { price });
-
-      return {
-        success: true,
-        message: 'Precio actualizado'
-      };
-
-    } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
-      };
+    if (!product || product.deletedBy) {
+      return { success: false, message: 'Producto no encontrado', code: 400 };
     }
-  }
 
-  // PATCH: /discount/:productId
+    if (product.ownerId !== userId) {
+      return { success: false, message: 'No tienes permiso para modificar este producto', code: 403 };
+    }
+
+    await this.productRepository.update(productId, { price });
+
+    return { success: true, message: 'Precio actualizado' };
+
+  } catch (err: any) {
+    return {
+      success: false,
+      code: 500,
+      message: err?.message ?? 'Error al actualizar el precio'
+    };
+  }
+}
+
   async updateDiscount(userId: string, productId: string, discount: number): Promise<SuccessDto<void>> {
     try {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .innerJoin('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = UUID_TO_BIN(:productId)', { productId })
         .andWhere('m.deleted_by IS NULL')
         .select('p.user_id') 
         .getRawOne();
@@ -385,13 +353,12 @@ export class ProductService {
     }
   }
 
-  // PATCH: /stock/:productId
   async modifyStock(userId: string, productId: string, delta: number): Promise<SuccessDto<number>> {
     try {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .innerJoin('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = UUID_TO_BIN(:productId)', { productId })
         .andWhere('m.deleted_by IS NULL')
         .select(['p.user_id', 'p.stock'])
         .getRawOne();
@@ -429,22 +396,28 @@ export class ProductService {
     }
   }
   
-  // PUT: /
-  async updateProduct(userId: string, product: UpdateProductDto): Promise<SuccessDto<ProductDto>> {
+  async updateProduct(userId: string, productId: string, product: UpdateProductDto): Promise<SuccessDto<ProductDto>> {
     try {
       const existing = await this.productRepository
         .createQueryBuilder('p')
         .innerJoin('p.meta', 'm')
-        .where('p.id = :id', { id: product.id })
-        .andWhere('m.deleted_by IS NULL')
-        .select(['p.user_id'])
+        .where('p.id = UUID_TO_BIN(:id)', { id: productId })
+        .select(['p.userId AS userId', 'm.deletedBy AS deletedBy'])
         .getRawOne();
 
       if (!existing) {
         return { success: false, message: 'Producto no encontrado', code: 400 };
       }
 
-      if (existing.p_user_id !== userId) {
+      if (existing.deletedBy && existing.deletedBy !== userId) {
+        return {
+          success: false,
+          message: 'Este Producto fue bloqueado por un administrador',
+          code: 403,
+        };
+      }
+
+      if (existing.userId !== userId) {
         return {
           success: false,
           message: 'No tienes permiso para modificar este producto',
@@ -452,28 +425,33 @@ export class ProductService {
         };
       }
 
-      const updateData: any = {};
+      const entity = await this.productRepository.findOne({
+        where: { id: productId },
+        relations: ['tags', 'images', 'category'],
+      });
 
-      const keys = [
-        'title',
-        'description',
-        'category',
-        'price',
-        'discountPercentage',
-        'stock',
-        'brand',
-        'weight',
-        'physical',
-        'warrantyInformation',
-        'shippingInformation',
-        'tags',
-        'images',
-        'thumbnail',
-      ];
+      if (!entity) {
+        return { success: false, message: 'Producto no encontrado', code: 400 };
+      }
 
-      for (const key of keys) {
+      const directMap = {
+        title: 'title',
+        description: 'description',
+        price: 'price',
+        discountPercentage: 'discountPercentage',
+        stock: 'stock',
+        brand: 'brand',
+        weight: 'weight',
+        physical: 'physical',
+        thumbnail: 'thumbnail',
+        warrantyInformation: 'warrantyInfo',
+        shippingInformation: 'shippingInfo',
+      };
+
+      for (const key in directMap) {
+        const prop = directMap[key];
         if (product[key] !== undefined) {
-          updateData[key] = product[key];
+          (entity as any)[prop] = product[key];
         }
       }
 
@@ -490,101 +468,138 @@ export class ProductService {
           };
         }
 
-        updateData.category = { id: category.id };
+        entity.category = category;
       }
 
-      if (Object.keys(updateData).length === 0) {
-        return { success: false, message: 'No hay campos para actualizar', code: 400 };
+      if (product.tags !== undefined) {
+        const normalizedTags = product.tags.map(t => t.toLowerCase().trim());
+
+        const tags = await this.tagRepository.find({
+          where: { title: In(normalizedTags) },
+        });
+
+        entity.tags = tags;
       }
 
-      await this.productRepository.update(product.id, updateData);
+      if (product.images !== undefined) {
+        await this.imageRepository.delete({ product: { id: productId } });
 
-      const updated = await this.getProductById(product.id)
+        entity.images = product.images.map((link) =>
+          this.imageRepository.create({ link })
+        );
+      }
+      await this.productRepository.save(entity);
 
-      return updated
+      const updated = await this.getProductById(productId);
+      return updated;
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error interno',
+      };
+    }
+  }
+
+  async createProduct(userId: string, product: CreateProductDto): Promise<SuccessDto<ProductDto>> {
+    try {
+      const category = await this.categoryRepository
+        .createQueryBuilder('c')
+        .where('c.slug = :slug', { slug: product.category })
+        .getOne();
+
+      if (!category) {
+        return {
+          success: false,
+          code: 400,
+          message: 'Categoría no encontrada',
+        };
+      }
+
+      const insertResult = await this.productRepository
+        .createQueryBuilder()
+        .insert()
+        .into(Product)
+        .values({
+          userId,
+          title: product.title,
+          description: product.description,
+          price: product.price,
+          discountPercentage: product.discountPercentage ?? 0,
+          stock: product.stock,
+          brand: product.brand,
+          weight: product.weight,
+          physical: product.physical,
+          warrantyInfo: product.warrantyInformation ?? null,
+          shippingInfo: product.shippingInformation ?? null,
+          thumbnail: product.thumbnail ?? null,
+          category: { id: category.id }
+        })
+        .execute();
+
+      const productId = insertResult.identifiers[0]?.id;
+      if (product.tags?.length) {
+        const normalizedTitles = product.tags.map(t => t.toLowerCase().trim())
+        .filter(t => t.length > 0);
+
+        if (normalizedTitles.length) {
+          const tags = await this.tagRepository
+            .createQueryBuilder('t')
+            .where('t.title IN (:...titles)', { titles: normalizedTitles })
+            .getMany();
+
+          if (tags.length) {
+            await this.productRepository
+              .createQueryBuilder()
+              .relation(Product, 'tags')
+              .of(productId)
+              .add(tags.map(t => t.id));
+          }
+        }
+      }
+
+
+      if (product.images?.length) {
+        const imgInserts = product.images.map(link => ({
+          product: { id: productId },
+          link,
+        }));
+
+        await this.imageRepository
+          .createQueryBuilder()
+          .insert()
+          .into(Image)
+          .values(imgInserts)
+          .execute();
+      }
+
+      await this.metaRepository
+        .createQueryBuilder()
+        .insert()
+        .into(Meta)
+        .values({
+          product: { id: productId }
+        })
+        .execute();
+
+      const result = await this.getProductById(productId);
+      return result;
 
     } catch (err: any) {
       return {
         success: false,
         code: 500,
-        message: err?.message ?? 'Error al obtener las reviews'
+        message: err?.message ?? 'Error al crear el producto',
       };
     }
   }
 
-  // POST: /
-  async createProduct(
-    userId: string,
-    product: CreateProductDto
-  ): Promise<SuccessDto<ProductDto>> {
-    try {
-      const discount = product.discountPercentage ?? 0;
-      const warranty = product.warrantyInformation ?? null;
-      const shipping = product.shippingInformation ?? null;
-      const tags = product.tags ?? null;
-      const images = product.images ?? null;
-      const thumbnail = product.thumbnail ?? null;
-
-      const result = await this.productRepository.query(
-        `
-        CALL create_full_product(
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-        )
-        `,
-        [
-          userId,
-          product.title,
-          product.description,
-          product.price,
-          discount,
-          product.stock,
-          product.brand,
-          product.weight,
-          warranty,
-          shipping,
-          product.category,   
-          thumbnail,
-          product.physical,
-          JSON.stringify(tags),
-          JSON.stringify(images),
-        ]
-      );
-
-      const createdRaw = result?.[0]?.[0];
-
-      if (!createdRaw) {
-        return {
-          success: false,
-          message: 'No se pudo crear el producto',
-          code: 500,
-        };
-      }
-
-      const created = await this.getProductById(createdRaw.id);
-      return created;
-
-    } catch (err: any) {
-      if (err?.sqlMessage === 'Category not found') {
-        return {
-          success: false,
-          message: 'Categoría no encontrada',
-          code: 400,
-        };
-      }
-      return{
-        success: false, 
-        message: err?.message ?? 'Error conectando a la base mde datos de productos',
-        code: 500
-      };
-    }
-  }
-
-  // DELETE: /:id
   async deleteProduct(userId: string, productId: string): Promise<SuccessDto<void>> {
-    try{
-      const product = await this.productRepository.findOne({
-        where: { id: productId }
-      });
+    try {
+      const product = await this.productRepository
+        .createQueryBuilder('p')
+        .where('p.id = UUID_TO_BIN(:id)', { id: productId })
+        .getOne();
 
       if (!product) {
         return {
@@ -601,22 +616,28 @@ export class ProductService {
           message: 'No tenés permisos para eliminar este producto',
         };
       }
-      
-      await this.productRepository.delete(productId);
+
+      await this.productRepository
+        .createQueryBuilder()
+        .delete()
+        .from(Product)
+        .where('id = UUID_TO_BIN(:id)', { id: productId })
+        .execute();
+
       return {
         success: true,
         message: 'Producto eliminado correctamente',
       };
-    }catch(err){
-      return{
-        success: false, 
-        message: err?.message ?? 'Error conectando a la base mde datos de productos',
-        code: 500
+
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error conectando a la base de datos de productos',
       };
     }
-  }  
+  }
 
-  // POST: /calculateRating
   async calculateRating(): Promise<SuccessDto<void>> {
     try {
       await this.productRepository.query(`
@@ -639,12 +660,11 @@ export class ProductService {
     }
   }
 
-  // GET: /reviews/user
   async getAccountReviews(userId: string): Promise<SuccessDto<ReviewDto[]>> {
     try {
       const reviews = await this.reviewRepository
         .createQueryBuilder('review')
-        .where('review.userId = :userId', { userId })
+        .where('review.userId = UUID_TO_BIN(:userId)', { userId })
         .orderBy('review.created', 'DESC')
         .getMany();
 

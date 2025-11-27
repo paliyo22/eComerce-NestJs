@@ -19,16 +19,20 @@ export class CartService {
   ){}
 
   private async getCartId(accountId: string): Promise<string>{
-    const cart = await this.cartRepo
+    let cart = await this.cartRepo
       .createQueryBuilder('c')
-      .where('c.accountId = :accountId', { accountId })
+      .where('c.accountId = UUID_TO_BIN(:accountId)', { accountId })
       .getOne();
 
-    if(!cart){
-      throw new Error('CART_NOT_FOUND');
+    if (!cart) {
+      cart = this.cartRepo.create({
+        accountId
+      });
+
+      cart = await this.cartRepo.save(cart);
     }
-    
-    return cart.id
+
+  return cart.id;
   }
 
   async getCart(accountId: string): Promise<SuccessDto<CartDto>> {
@@ -38,7 +42,7 @@ export class CartService {
       const cart = await this.cartRepo
         .createQueryBuilder('c')
         .leftJoinAndSelect('c.cartProducts', 'cp')
-        .where('c.id = :id', { id })
+        .where('c.id = UUID_TO_BIN(:id)', { id })
         .getOne();
 
       return {
@@ -58,44 +62,32 @@ export class CartService {
     }  
   }
 
-  async addToCart(product: AddProductToCartDto, accountId?: string): Promise<SuccessDto<CartProductDto>> {
+  async addToCart(accountId: string, productId: string, newProduct: AddProductToCartDto): Promise<SuccessDto<void>> {
     try {    
-      let finalAmount = product.amount;
-      if (!product.cartId && !accountId) {
-        return { success: false, message: 'Debe enviar cartId o accountId', code: 400 };
-      }
- 
-      if(accountId){
-        product.cartId = await this.getCartId(accountId);
-      }
+      const cartId = await this.getCartId(accountId);
+      
       const cartProduct = await this.cartProductRepo
         .createQueryBuilder('cp')
-        .where('cp.cartId = :cartId', { cartId: product.cartId })
-        .andWhere('cp.productId = :productId', { productId: product.productId })
+        .where('cp.cartId = UUID_TO_BIN(:cartId)', { cartId })
+        .andWhere('cp.productId = UUID_TO_BIN(:productId)', { productId: productId })
         .getOne();
 
       if (cartProduct) {
-        cartProduct.amount += product.amount;
-        finalAmount = cartProduct.amount;
+        cartProduct.amount = newProduct.amount;
         await this.cartProductRepo.save(cartProduct);
       } else {
         await this.cartProductRepo.insert({
-          cartId: product.cartId,
-          productId: product.productId,
-          title: product.title,
-          price: product.price,
-          amount: product.amount
+          cartId: cartId,
+          productId: productId,
+          title: newProduct.title,
+          price: newProduct.price,
+          amount: newProduct.amount
         });
       }
 
       return {
         success: true,
-        data: {
-          productId: product.productId,
-          title: product.title,
-          price: product.price,
-          amount: finalAmount
-        } 
+        message: 'Producto agregado al carrito'
       };
 
     } catch (err) {
@@ -133,18 +125,10 @@ export class CartService {
     }
   }
 
-  async deleteCart(accountId: string, cartId?: string): Promise<SuccessDto<void>> {
+  async deleteCart(accountId: string): Promise<SuccessDto<void>> {
     try {
-      if(!cartId){
-        cartId = await this.getCartId(accountId);
-      }
-      const existing = await this.cartRepo.findOne({
-        where: { id: cartId, accountId }
-      });
 
-      if (!existing) {
-        return { success: false, message: 'Carrito no encontrado', code: 404 };
-      }
+      const cartId = await this.getCartId(accountId);
 
       await this.cartRepo.delete({ id: cartId });
 
@@ -161,16 +145,12 @@ export class CartService {
     }
   }
 
-  async setAmount(productId: string, amount: number, accountId?: string, cartId?: string): Promise<SuccessDto<void>> {
+  async setAmount(accountId: string, productId: string, amount: number, cartId?: string): Promise<SuccessDto<void>> {
     try {
-      if (!cartId && !accountId) {
-        return { success: false, message: 'Debe enviar cartId o accountId', code: 400 };
-      }
-
       if(!cartId){
         cartId = await this.getCartId(accountId!);
       }
-
+      
       const cartProduct = await this.cartProductRepo.findOne({
         where: { cartId, productId }
       });
@@ -198,5 +178,36 @@ export class CartService {
         message: err?.message ?? 'Error al actualizar cantidad del producto'
       };
     }
+  }
+
+  async getCartProduct(accountId: string, productId: string): Promise<SuccessDto<CartProductDto>>{
+    try {
+      const id = await this.getCartId(accountId);
+
+      const cartItem = await this.cartProductRepo
+      .createQueryBuilder('p')
+      .where('p.cart_id = UUID_TO_BIN(:id)', { id })
+      .andWhere('p.product_id = UUID_TO_BIN(:productId)', { productId })
+      .getOne();
+
+      if(!cartItem){
+        return { success: false, message: 'Producto no encontrado', code: 404 };
+      }
+
+      return {
+        success: true,
+        data: CartProductDto.fromEntity(cartItem)
+      };
+     
+    } catch (err) {
+      if(err.message === 'CART_NOT_FOUND'){
+        return { success: false, message: 'Carrito no encontrado', code: 404 };
+      }
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al conectar con la base de datos del carrito'
+      }; 
+    }  
   }
 }

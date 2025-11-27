@@ -10,6 +10,7 @@ import { AccountDto, CreateAdminDto, CreateBusinessDto, CreateUserDto, UpdateAdm
 import { AddressDto, CreateAddressDto } from 'libs/dtos/address';
 import { CreateStoreDto, StoreDto } from 'libs/dtos/store';
 import { ERole, getRoleGroup } from 'libs/shared/role-enum';
+import { uuidTransformer } from 'libs/shared';
 
 @Injectable()
 export class AccountService {
@@ -26,10 +27,11 @@ export class AccountService {
 
   private async generateJwt(account: PartialAccountDto): Promise<string> {
     const payload = { userId: account.id };
-    return sign(payload, process.env.JWT_REFRESH_SECRET!, { expiresIn: '1d' });
+    return sign(payload, String(process.env.JWT_REFRESH_SECRET), { expiresIn: '1d' });
   }
 
   private async saveToken(accountId: string, refreshToken: string): Promise<void> {
+    await this.refreshRepository.delete({accountId});
     const entity = this.refreshRepository.create({
       id: refreshToken,
       accountId,
@@ -39,6 +41,37 @@ export class AccountService {
     });
 
     await this.refreshRepository.save(entity);
+  }
+
+  async getAccount (accountId: string): Promise<SuccessDto<Account>> {
+    try {
+      console.log(accountId);
+      const account = await this.accountRepository
+        .createQueryBuilder('account')
+        .leftJoinAndSelect('account.meta', 'meta')
+        .leftJoinAndSelect('meta.role', 'role')
+        .leftJoinAndSelect('meta.status', 'status')
+        .leftJoinAndSelect('account.userProfile', 'userProfile')
+        .leftJoinAndSelect('account.businessProfile', 'businessProfile')
+        .leftJoinAndSelect('account.adminProfile', 'adminProfile')
+        .leftJoinAndSelect('account.stores', 'store')
+        .leftJoinAndSelect('store.address', 'storeAddress')
+        .leftJoinAndSelect('account.addresses', 'address')
+        .where('account.id = UUID_TO_BIN(:id)', { id: accountId })
+        .getOne();
+
+      if (!account) {
+        return { success: false, message: 'Token inválido o usuario inexistente.', code: 401 };
+      }
+
+      return { success: true, data: account };
+    } catch (err) {
+      return {
+        success: false,
+        code: 500,
+        message: err?.message ?? 'Error al obtener la información de la cuenta',
+      };
+    }
   }
 
   async logIn(account: string, password: string): Promise<SuccessDto<PartialAccountDto>> {
@@ -68,7 +101,7 @@ export class AccountService {
         return { success: false, message: 'Credenciales inválidas', code: 400 };
       }
 
-      const result = PartialAccountDto.fromEntity(acc,'');
+      const result = PartialAccountDto.fromEntity(acc);
       result.refreshToken = await this.generateJwt(result);
 
       await this.saveToken(result.id, result.refreshToken);
@@ -88,7 +121,7 @@ export class AccountService {
       await this.refreshRepository
         .createQueryBuilder()
         .delete()
-        .where('account_id = :id', { id: userId })
+        .where('account_id = UUID_TO_BIN(:id)', { id: userId })
         .andWhere('device = :device', {device: 'unknown'})
         .execute();
 
@@ -126,7 +159,7 @@ export class AccountService {
         .leftJoinAndSelect('account.meta', 'meta')
         .leftJoinAndSelect('meta.role', 'role')
         .leftJoinAndSelect('meta.status', 'status')
-        .where('account.id = :id', { id: userId })
+        .where('account.id = UUID_TO_BIN(:id)', { id: userId })
         .getOne();
 
       if (!acc) {
@@ -137,7 +170,7 @@ export class AccountService {
         return { success: false, message: 'Cuenta suspendida temporalmente', code: 403 };
       }
 
-      const partial = PartialAccountDto.fromEntity(acc, '');
+      const partial = PartialAccountDto.fromEntity(acc);
       const newToken = await this.generateJwt(partial);
 
       await this.refreshRepository.delete({ id: refreshToken });
@@ -217,8 +250,18 @@ export class AccountService {
         }
       });
 
-      const accountEntity = await this.accountRepository.findOne({ where: { id: accountId! } });
-      const partial = PartialAccountDto.fromEntity(accountEntity!, '');
+      const accountEntity = await this.accountRepository
+        .createQueryBuilder('account')
+        .leftJoinAndSelect('account.meta', 'meta')
+        .leftJoinAndSelect('meta.role', 'role')
+        .leftJoinAndSelect('meta.status', 'status')
+        .where('account.id = UUID_TO_BIN(:id)', { id: accountId! })
+        .getOne();
+
+      if(!accountEntity){
+        return { success: false, message: 'Error al buscar el usuario', code: 455 };
+      }
+      const partial = PartialAccountDto.fromEntity(accountEntity);
       const refreshToken = await this.generateJwt(partial);
       await this.saveToken(accountId!, refreshToken);
       partial.refreshToken = refreshToken;
@@ -240,35 +283,6 @@ export class AccountService {
     }
   }
 
-  private async getAccount (accountId: string): Promise<SuccessDto<Account>> {
-    try {
-      const account = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('account.userProfile', 'userProfile')
-        .leftJoinAndSelect('account.businessProfile', 'businessProfile')
-        .leftJoinAndSelect('account.adminProfile', 'adminProfile')
-        .leftJoinAndSelect('account.stores', 'store')
-        .leftJoinAndSelect('store.address', 'storeAddress')
-        .leftJoinAndSelect('account.addresses', 'address')
-        .where('account.id = :id', { id: accountId })
-        .getOne();
-
-      if (!account) {
-        return { success: false, message: 'Token inválido o usuario inexistente.', code: 401 };
-      }
-
-      return { success: true, data: account };
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener la información de la cuenta',
-      };
-    }
-  }
-
   async getInfo(accountId: string): Promise<SuccessDto<AccountDto>> {
     try {
       const account = await this.getAccount(accountId);
@@ -287,11 +301,7 @@ export class AccountService {
     }
   }
 
-  async updateAccount(
-    accountId: string, 
-    dto: UpdateAdminDto | UpdateBusinessDto | UpdateUserDto,
-    role: ERole
-  ): Promise<SuccessDto<AccountDto>> {
+  async updateAccount(accountId: string, dto: UpdateAdminDto | UpdateBusinessDto | UpdateUserDto, role: ERole): Promise<SuccessDto<AccountDto>> {
     try {
       const current = await this.getAccount(accountId);
       if (!current.success) {
@@ -362,7 +372,7 @@ export class AccountService {
             .set({
               ...mergedAccount
             })
-            .where('id = :id', { id: accountId })
+            .where('id = UUID_TO_BIN(:id)', { id: accountId })
             .execute();
         }
         if (Object.keys(mergedProfile).length > 0) {
@@ -374,7 +384,7 @@ export class AccountService {
                 .set({
                   ...mergedProfile
                 })
-                .where('account_id = :id', { id: accountId })
+                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
                 .execute();
               break;
             case 'business':
@@ -384,7 +394,7 @@ export class AccountService {
                 .set({
                   ...mergedProfile
                 })
-                .where('account_id = :id', { id: accountId })
+                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
                 .execute();
               break;
             case 'admin':
@@ -394,7 +404,7 @@ export class AccountService {
                 .set({
                   ...mergedProfile
                 })
-                .where('account_id = :id', { id: accountId })
+                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
                 .execute();
               break;
           }
@@ -431,7 +441,7 @@ export class AccountService {
         return manager
           .getRepository(Address)
           .createQueryBuilder('address')
-          .where('address.account_id = :id', { id: userId })
+          .where('address.account_id =  UUID_TO_BIN(:id)', { id: userId })
           .getMany();
       });
 
@@ -447,8 +457,8 @@ export class AccountService {
         .getRepository(Address)
         .createQueryBuilder()
         .delete()
-        .where('id = :addressId', { addressId })
-        .andWhere('account_id = :userId', { userId })
+        .where('id =  UUID_TO_BIN(:addressId)', { addressId })
+        .andWhere('account_id =  UUID_TO_BIN(:userId)', { userId })
         .execute();
 
       if (result.affected === 0) {
@@ -472,7 +482,7 @@ export class AccountService {
         const store = manager.create(Store, {
           account: {id: userId},
           phone: dto.phone,
-          verified: false,
+          verified: true
         });
         await manager.save(store);
 
@@ -482,7 +492,7 @@ export class AccountService {
           apartment: dto.apartment ?? null,
           city: dto.city,
           zip: dto.zip,
-          country: dto.country,
+          country: dto.country
         });
         await manager.save(address);
 
@@ -490,7 +500,7 @@ export class AccountService {
           .getRepository(Store)
           .createQueryBuilder('store')
           .leftJoinAndSelect('store.address', 'address')
-          .where('store.account_id = :userId', { userId })
+          .where('store.account_id =  UUID_TO_BIN(:userId)', { userId })
           .getMany();
       });
 
@@ -506,8 +516,8 @@ export class AccountService {
         const store = await manager
           .getRepository(Store)
           .createQueryBuilder('store')
-          .where('store.id = :storeId', { storeId })
-          .andWhere('store.account_id = :userId', { userId })
+          .where('store.id =  UUID_TO_BIN(:storeId)', { storeId })
+          .andWhere('store.account_id =  UUID_TO_BIN(:userId)', { userId })
           .getOne();
 
         if (!store) {
@@ -518,7 +528,7 @@ export class AccountService {
           .getRepository(Store)
           .createQueryBuilder()
           .delete()
-          .where('id = :storeId', { storeId })
+          .where('id =  UUID_TO_BIN(:storeId)', { storeId })
           .execute();
       });
 
@@ -551,7 +561,7 @@ export class AccountService {
         deleted: new Date(),
         deletedBy: accountId
       })
-      .where('account_id = :id', { id: accountId })
+      .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
       .execute();
 
       return {success: true, message: 'Cuenta eliminada'};
@@ -581,7 +591,7 @@ export class AccountService {
 
       return {
         success: true,
-        data: accounts.map(acc => PartialAccountDto.fromEntity(acc, '')),
+        data: accounts.map(acc => PartialAccountDto.fromEntity(acc)),
       };
 
     } catch (err: any) {
@@ -669,7 +679,7 @@ export class AccountService {
 
       return {
         success: true,
-        data: users.map(acc => PartialAccountDto.fromEntity(acc, '')),
+        data: users.map(acc => PartialAccountDto.fromEntity(acc)),
       };
 
     } catch (err: any) {
@@ -697,9 +707,6 @@ export class AccountService {
         .leftJoinAndSelect('account.meta', 'meta')
         .leftJoinAndSelect('meta.status', 'status')
         .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('account.userProfile', 'user')
-        .leftJoinAndSelect('account.businessProfile', 'business')
-        .leftJoinAndSelect('account.adminProfile', 'admin')
         .where('account.username LIKE :term', { term })
         .orWhere('account.email LIKE :term', { term })
         .orWhere('admin.publicName LIKE :term', { term })
@@ -713,7 +720,7 @@ export class AccountService {
 
       return {
         success: true,
-        data: users.map(acc => PartialAccountDto.fromEntity(acc, ''))
+        data: users.map(acc => PartialAccountDto.fromEntity(acc))
       };
 
     } catch (err: any) {
@@ -727,12 +734,14 @@ export class AccountService {
 
   async getAccountInfo(adminId: string, username: string): Promise<SuccessDto<AccountDto>> {
     try{
-      const account = await this.getAccount(adminId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
-      if(account.data?.meta.role.slug !== 'admin'){
-        return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
+      if(adminId !== String(process.env.INTERNAL_PASSWORD)){
+        const account = await this.getAccount(adminId);
+        if(!account.success){
+          return {success: account.success, code: account.code, message: account.message};
+        }
+        if(account.data?.meta.role.slug !== 'admin'){
+          return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
+        }
       }
       const result = await this.accountRepository
         .createQueryBuilder('account')
@@ -750,6 +759,35 @@ export class AccountService {
         success: false,
         message: err.message ?? 'Error obteniendo los datos.',
         code: 500
+      };
+    }
+  }
+
+  async getAccountListInfo(accounts: string[]): Promise<SuccessDto<PartialAccountDto[]>> {
+    try {
+      if (!accounts.length) {
+        return { success: true, data: [] };
+      }
+
+      const ids = accounts.map(id => uuidTransformer.to(id));
+
+      const users = await this.accountRepository
+        .createQueryBuilder('account')
+        .leftJoinAndSelect('account.meta', 'meta')
+        .leftJoinAndSelect('meta.status', 'status')
+        .leftJoinAndSelect('meta.role', 'role')
+        .where('account.id IN (:...ids)', { ids })
+        .getMany();
+
+      return {
+        success: true,
+        data: users.map(acc => PartialAccountDto.fromEntity(acc)),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message: err.message ?? 'Error obteniendo los datos.',
+        code: 500,
       };
     }
   }

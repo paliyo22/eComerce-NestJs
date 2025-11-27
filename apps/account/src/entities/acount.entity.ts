@@ -1,11 +1,18 @@
 import { PrimaryBinaryUuidColumn } from "libs/shared";
-import { Entity, Column, OneToMany, OneToOne } from "typeorm";
+import { Entity, Column, OneToMany, OneToOne, BeforeInsert } from "typeorm";
 import { Meta, Address, AdminProfile, BusinessProfile, RefreshToken, Store, UserProfile } from ".";
+import { v4 as uuid } from 'uuid';
 
 @Entity('account')
 export class Account {
   @PrimaryBinaryUuidColumn()
   id: string;
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = uuid();
+    }
+  }
 
   @Column({ type: 'varchar', length: 100, unique: true })
   email: string;

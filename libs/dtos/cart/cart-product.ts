@@ -5,13 +5,15 @@ export class CartProductDto {
     title: string;
     price: number;
     amount: number;
+    discount: number;
 
     static fromEntity(cart: CartProduct): CartProductDto {
         return {
             productId: cart.productId,
             title: cart.title,
             price: cart.price,
-            amount: cart.amount
+            amount: cart.amount,
+            discount: cart.discountPercentage
         };
     }
 }

@@ -1,5 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseEnumPipe, ParseFloatPipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
-import { PartialProductDto, CompleteProductDto, UpdateProductDto, CreateProductDto } from 'libs/dtos/product';
+import { BadRequestException, Body, Controller, Delete, Get, Param, 
+  ParseEnumPipe, ParseFloatPipe, ParseIntPipe, ParseUUIDPipe, 
+  Patch, Post, Put, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
+import { PartialProductDto, UpdateProductDto, CreateProductDto } from 'libs/dtos/product';
 import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
 import { ECategory } from 'libs/shared/category-enum';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -7,10 +9,13 @@ import { ProductService } from './product.service';
 import { RolesGuard } from '../guards/role.guard';
 import { ERole } from 'libs/shared/role-enum';
 import { Roles } from '../decorators/role.decorator';
+import { ProductOutputDto } from './completeProduct';
 
 @Controller('product')
 export class ProductController {
-  constructor(private readonly productService: ProductService) {};
+  constructor(
+    private readonly productService: ProductService
+  ) {};
 
   @Get('/total')
   async getTotal(@Query('category') category?: string): Promise<number> {
@@ -19,25 +24,33 @@ export class ProductController {
 
   @Get()
   async getProductList(
-    @Query('limit', ParseIntPipe) limit?: number, 
-    @Query('offset', ParseIntPipe) offset?: number
+    @Query('limit') limit?: number, 
+    @Query('offset') offset?: number
   ): Promise<PartialProductDto[]> {
-    return this.productService.getProductList(limit, offset);
+    return this.productService.getProductList(undefined, limit, offset);
+  }
+
+  @Get('/me')
+  @UseGuards(JwtAuthGuard)
+  async getMyProductList(
+    @Req() req
+  ): Promise<PartialProductDto[]> {
+    return this.productService.getProductList(req.user.userId);
   }
 
   @Get('/category/:category')
   async getProductByCategory(
     @Param('category', new ParseEnumPipe(ECategory)) category: ECategory,
-    @Query('limit', ParseIntPipe) limit?: number, 
-    @Query('offset', ParseIntPipe) offset?: number
+    @Query('limit') limit?: number, 
+    @Query('offset') offset?: number
   ): Promise<PartialProductDto[]> {
     return this.productService.getProductByCategory(category, limit, offset);
   }
 
   @Get('/featured')
   async getFeatured(
-    @Query('limit', ParseIntPipe) limit?: number, 
-    @Query('offset', ParseIntPipe) offset?: number
+    @Query('limit') limit?: number, 
+    @Query('offset') offset?: number
   ): Promise<PartialProductDto[]> {
     return this.productService.getFeatured(limit, offset);
   }
@@ -50,9 +63,7 @@ export class ProductController {
     @Req() req
   ): Promise<ReviewDto[]> {
     const userId = req.user.userId;
-    const reviewList = await this.productService.addReview(userId, review);
-    const accountList = await ;
-    return ReviewDto.loadArray(reviewList, accountList);
+    return this.productService.addReview(userId, review);
   }
 
   @Delete('/review/:productId')
@@ -74,8 +85,7 @@ export class ProductController {
   async getAccountProducts(
     @Param('username') username: string
   ): Promise<PartialProductDto[]> {
-    const id = await ;//aca se llama al metodo que me da el id
-    return this.productService.accountProductList(id);
+    return this.productService.accountProductList(username);
   }
 
   @Patch('/discount/:productId')
@@ -115,37 +125,18 @@ export class ProductController {
     return this.productService.modifyStock(userId, productId, delta);
   }
 
-  @Put()
-  @UseGuards(JwtAuthGuard)
-  async updateProduct(
-    @Body('product', new ValidationPipe({whitelist: true, transform: true})) product: UpdateProductDto,
-    @Req() req
-  ): Promise<CompleteProductDto> {
-    const userId = req.user.userId;
-    const newProduct = await this.productService.updateProduct(userId, product); 
-    const account = await ;
-    const accounts = await ;
-    return CompleteProductDto.fromEntities(newProduct, account, accounts);
-  }
-
   @Post()
   @UseGuards(JwtAuthGuard)
   async addProduct(
-    @Body('product', new ValidationPipe({whitelist: true, transform: true})) product: CreateProductDto,
+    @Body('product') product: CreateProductDto,
     @Req() req
-  ): Promise<CompleteProductDto> {
-    const userId = req.user.userId;
-    
-    const newProduct = await this.productService.addProduct(userId, product); 
-    const account = await ;
-    const accounts = await ;
-    return CompleteProductDto.fromEntities(newProduct, account, accounts);
+  ): Promise<ProductOutputDto> {
+    return this.productService.addProduct(req.user.userId, product); 
   }
 
   @Post('/calculate-rating')
   @UseGuards(JwtAuthGuard)
-  async calculateRating(@Req() req): Promise<string> {
-
+  async calculateRating(): Promise<string> {
     return this.productService.calculateRating();
   }
 
@@ -156,12 +147,19 @@ export class ProductController {
     return this.productService.getAccountReviews(userId)
   }
 
-  @Get('/:productId') // ACA SE TIENE QUE CONVINAR CON USER
-  async getProductById (@Param('productId', new ParseUUIDPipe()) productId: string): Promise<CompleteProductDto> {
-    const product = await this.productService.getProductById(productId); 
-    const account = await ;
-    const accounts = await ;
-    return CompleteProductDto.fromEntities(product, account, accounts);
+  @Get('/:productId')
+  async getProductById (@Param('productId', new ParseUUIDPipe()) productId: string): Promise<ProductOutputDto> {
+    return this.productService.getProductById(productId); 
+  }
+
+  @Put('/:productId')
+  @UseGuards(JwtAuthGuard)
+  async updateProduct(
+    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Body('product') product: UpdateProductDto,
+    @Req() req
+  ): Promise<ProductOutputDto> {
+    return this.productService.updateProduct(req.user.userId, productId, product);
   }
 
   @Delete('/:productId')
@@ -170,7 +168,6 @@ export class ProductController {
     @Param('productId', new ParseUUIDPipe()) productId: string,
     @Req() req
   ): Promise<string> {
-    const userId = req.user.userId;
-    return this.productService.deleteProduct(userId, productId);
+    return this.productService.deleteProduct(req.user.userId, productId);
   }
 }

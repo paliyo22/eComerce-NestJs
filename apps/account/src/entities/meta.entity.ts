@@ -21,10 +21,10 @@ export class Meta {
   updated: Date;
 
   @Column({ type: 'datetime', nullable: true })
-  deleted: Date | null;
+  deleted?: Date | null;
 
   @BinaryUuidColumn({ name: 'deleted_by', nullable: true })
-  deletedBy: string | null;
+  deletedBy?: string | null;
 
   @BinaryUuidColumn({ name: 'verify_token', nullable: true })
   verifyToken: string | null;

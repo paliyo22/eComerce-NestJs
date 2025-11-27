@@ -9,7 +9,7 @@ export class PartialAccountDto {
     status: string;
     refreshToken?: string;
 
-    static fromEntity(account: Account, refreshToken: string): PartialAccountDto {
+    static fromEntity(account: Account, refreshToken?: string): PartialAccountDto {
         return{
             id: account.id,
             email: account.email,

@@ -3,27 +3,29 @@ import { ReviewDto } from "../review";
 import { PartialProductDto } from "./partialProduct";
 
 export class ProductDto extends PartialProductDto{
+    userId: string;
     reviews?: ReviewDto[];
     meta: {
         created: Date,
         updated: Date
     };
     weight: number;
-    warrantyInformation: string | null;
-    shippingInformation: string | null;   
+    warrantyInformation?: string;
+    shippingInformation?: string;   
     physical: boolean;
 
     static fromEntity(product: Product): ProductDto {
         return {
             ...PartialProductDto.fromEntity(product),
+            userId: product.userId,
             reviews: product.reviews? product.reviews.map(r => ReviewDto.fromEntity(r)): undefined,
             meta: {
                 created: product.meta.created,
                 updated: product.meta.updated
             },
             weight: product.weight,
-            warrantyInformation: product.warrantyInfo ?? null,
-            shippingInformation: product.shippingInfo ?? null,
+            warrantyInformation: product.warrantyInfo ?? undefined,
+            shippingInformation: product.shippingInfo ?? undefined,
             physical: product.physical
         };
     }

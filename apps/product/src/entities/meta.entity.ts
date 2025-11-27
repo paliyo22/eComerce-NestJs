@@ -7,15 +7,17 @@ export class Meta {
   @PrimaryGeneratedColumn({ type: 'int', unsigned: true })
   id: number;
 
-  @OneToOne(() => Product, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'product_id' })
+  @OneToOne(() => Product, (product) => product.meta, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'product_id' }) // usa EXISTENTE
   product: Product;
 
   @Column({ type: 'datetime', nullable: true })
-  deleted: Date;
-    
-  @BinaryUuidColumn({ name: 'deleted_by'})
-  deletedBy: string;
+  deleted?: Date | null;
+
+  @BinaryUuidColumn({ name: 'deleted_by', nullable: true })
+  deletedBy?: string | null;
 
   @CreateDateColumn({ type: 'datetime' })
   created: Date;

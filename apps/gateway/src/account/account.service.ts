@@ -35,8 +35,8 @@ export class AccountService {
 
             return accountInfo;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -56,13 +56,11 @@ export class AccountService {
             };
 
             const partialAccount = result.data!;
-
             const jwtAccess = await this.authService.generateJwt(partialAccount);
-
             return { partialAccount, jwtAccess };
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -89,8 +87,8 @@ export class AccountService {
 
             return accountInfo;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -111,8 +109,8 @@ export class AccountService {
 
             return result.data!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -133,8 +131,8 @@ export class AccountService {
 
             return result.message!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -155,8 +153,8 @@ export class AccountService {
 
             return result.data!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -177,8 +175,8 @@ export class AccountService {
 
             return result.message!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -199,8 +197,8 @@ export class AccountService {
 
             return result.message!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -221,8 +219,8 @@ export class AccountService {
 
             return result.message!;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -244,8 +242,8 @@ export class AccountService {
             const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
             return accountList;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -267,8 +265,8 @@ export class AccountService {
             const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
             return accountList;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -290,8 +288,8 @@ export class AccountService {
             const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
             return accountList;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   
@@ -314,8 +312,8 @@ export class AccountService {
 
             return accountInfo;
         } catch (err) {
-            if (err?.message && err?.code) {
-                throw new HttpException(err.message, err.code);
+            if (err instanceof HttpException) {
+                throw err;
             }
             throw new HttpException('Error interno comunicando con microservicio', 500);
         }   

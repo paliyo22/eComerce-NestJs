@@ -20,13 +20,13 @@ export class AuthController {
         );
         res.cookie('accessToken', jwtAccess, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'lax',
             maxAge: 1000 * 60 * 60
         });
         res.cookie('refreshToken', partialAccount.refreshToken!, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'lax',
             maxAge: 1000 * 60 * 60 * 24
         });
@@ -56,13 +56,13 @@ export class AuthController {
         const { partialAccount, jwtAccess, jwtRefresh } = await this.authService.refresh(userId, refreshToken);
         res.cookie('accessToken', jwtAccess, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'lax',
             maxAge: 1000 * 60 * 60
         });
         res.cookie('refreshToken', jwtRefresh, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: false,
             sameSite: 'lax',
             maxAge: 1000 * 60 * 60 * 24
         });

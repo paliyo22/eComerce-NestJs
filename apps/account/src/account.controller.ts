@@ -99,4 +99,9 @@ export class AccountController {
     return this.accountService.getAccountInfo(data.adminId, data.username);
   }
 
+  @MessagePattern({ cmd: 'get_account_list_info' })
+  async getAccountListInfo(@Payload() data:{accounts: string[] }): Promise<SuccessDto<PartialAccountDto[]>> {
+    return this.accountService.getAccountListInfo(data.accounts);
+  }
+
 }

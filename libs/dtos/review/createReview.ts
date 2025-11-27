@@ -11,7 +11,7 @@ export class CreateReviewDto{
     @IsNotEmpty()
     rating: number;
  
-    @IsString()
     @IsOptional()
+    @IsString()   
     comment?: string;
 }

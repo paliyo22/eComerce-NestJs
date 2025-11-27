@@ -1,11 +1,18 @@
 import { BinaryUuidColumn, PrimaryBinaryUuidColumn } from "libs/shared";
-import { Entity, ManyToOne, JoinColumn, OneToOne, Column } from "typeorm";
+import { Entity, ManyToOne, JoinColumn, OneToOne, Column, BeforeInsert } from "typeorm";
 import { Account, Store } from ".";
+import { v4 as uuid } from 'uuid';
 
 @Entity('address')
 export class Address {
   @PrimaryBinaryUuidColumn()
   id: string;
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = uuid();
+    }
+  }
 
   @ManyToOne(() => Account, (account) => account.addresses, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'account_id' })

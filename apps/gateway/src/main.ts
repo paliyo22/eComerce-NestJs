@@ -1,11 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { GatewayModule } from './gateway.module';
-import * as cookieParser from 'cookie-parser';
+import cookieParser from 'cookie-parser';
+import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const app = await NestFactory.create(GatewayModule);
+  app.useGlobalPipes(new ValidationPipe())
   app.use(cookieParser());
-  const rawOrigins = process.env.ACCEPTED_ORIGINS ?? '';
+  app.enableCors({
+    origin: true, // o tu dominio del frontend
+    credentials: true
+  });
+
+  /*const rawOrigins = process.env.ACCEPTED_ORIGINS ?? '';
   const origins = rawOrigins
     .split(',')
     .map(o => o.trim())
@@ -15,7 +22,7 @@ async function bootstrap() {
     credentials: true,
     allowedHeaders: 'Content-Type, Authorization',
     methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  })
-  await app.listen(process.env.port ?? 3000);
+  })*/
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

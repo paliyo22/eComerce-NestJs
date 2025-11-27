@@ -9,15 +9,20 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
   
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: process.env.NODE_ENV === 'production' ? '../../.env.production' : '../../.env'
+      isGlobal: true
     }), 
+    TypeOrmModule.forFeature(productEntities),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'mysql',
+        host: 'localhost',
+        port: 3306,
+        username: 'root',
+        password: 'cervecero1',
+        database: 'product_db',
         synchronize: true,
-        url: config.get<string>('DBUrl'),
+        //url: config.get<string>('DBUrl'),
         poolSize: 10,
         timezone: 'Z',
         entities: productEntities
