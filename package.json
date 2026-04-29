@@ -7,8 +7,13 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "build:gateway": "nest build gateway",
+    "build:product": "nest build product",
+    "build:account": "nest build account",
+    "build:cart": "nest build cart",
+    "build:order": "nest build order",
+    "build:all": "run-p build:gateway build:account build:cart build:order build:product",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
-    "start:all": "run-p start start:product start:account start:cart start:order",
     "start": "nest start",
     "start:product": "nest start product",
     "start:account": "nest start account",
@@ -29,6 +34,7 @@
     "test:e2e": "jest --config ./apps/gateway/test/jest-e2e.json"
   },
   "dependencies": {
+    "@nestjs/cache-manager": "^3.1.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -38,11 +44,16 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.0",
+    "amqp-connection-manager": "^5.0.0",
+    "amqplib": "^1.0.3",
     "bcrypt": "^6.0.0",
+    "cache-manager": "^7.2.8",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cookie-parser": "^1.4.7",
-    "dotenv": "^17.2.3",
+    "ioredis": "^5.10.1",
+    "joi": "^18.0.2",
+    "mercadopago": "^2.12.0",
     "mysql2": "^3.15.3",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -55,8 +66,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
-    "@nestjs/cli": "^10.4.9",
-    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/cli": "^11.0.16",
+    "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.0.1",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
@@ -97,7 +108,12 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "roots": [
-      "<rootDir>/apps/"
-    ]
+      "<rootDir>/apps/",
+      "<rootDir>/libs/"
+    ],
+    "moduleNameMapper": {
+      "^@app/lib(|/.*)$": "<rootDir>/libs/lib/src/$1",
+      "^@app/redis(|/.*)$": "<rootDir>/libs/redis/src/$1"
+    }
   }
 }

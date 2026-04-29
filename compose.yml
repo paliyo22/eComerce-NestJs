@@ -1,0 +1,203 @@
+services:
+
+  redis:
+    image: redis:8.6-alpine  
+    deploy: 
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  rabbitmq:
+    image: rabbitmq:4.0.9-management-alpine
+    ports:
+      - '15672:15672'
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    image: ecommerce-gateway:1.0     
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      restart_policy: 
+        condition: on-failure
+    depends_on:
+      - redis
+      - rabbitmq
+      - product_mysql
+      - account_mysql
+      - cart_mysql
+      - order_mysql
+
+  product:
+    image: ecommerce-product:1.0 
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      restart_policy: 
+        condition: on-failure
+    depends_on:
+      - product_mysql
+      - rabbitmq
+
+  product_mysql:
+    image: mysql:9.2
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${PRODUCT_DB_NAME}
+    deploy:
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    volumes:
+      - product-mysql-data:/var/lib/mysql
+      - ./apps/product/initProduct.sql:/docker-entrypoint-initdb.d/init.sql 
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  account:
+    image: ecommerce-account:1.0
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      restart_policy: 
+        condition: on-failure
+    depends_on:
+      - account_mysql
+      - rabbitmq
+
+  account_mysql:
+    image: mysql:9.2  
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${ACCOUNT_DB_NAME}
+    deploy:
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    volumes:
+      - account-mysql-data:/var/lib/mysql
+      - ./apps/account/initAccount.sql:/docker-entrypoint-initdb.d/init.sql 
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  cart:
+    image: ecommerce-cart:1.0
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      restart_policy: 
+        condition: on-failure
+    depends_on:
+      - cart_mysql
+      - rabbitmq
+
+  cart_mysql:
+    image: mysql:9.2
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${CART_DB_NAME}
+    deploy:
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    volumes:
+      - cart-mysql-data:/var/lib/mysql
+      - ./apps/cart/initCart.sql:/docker-entrypoint-initdb.d/init.sql 
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  order:
+    image: ecommerce-order:1.0      
+    env_file:
+      - .env
+    deploy: 
+      replicas: 1
+      restart_policy: 
+        condition: on-failure
+    depends_on:
+      - order_mysql
+      - rabbitmq
+
+  order_mysql:
+    image: mysql:9.2 
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${ORDER_DB_NAME}
+    deploy:
+      replicas: 1
+      placement: 
+        constraints:
+          - node.role == manager
+      restart_policy: 
+        condition: on-failure
+    volumes:
+      - order-mysql-data:/var/lib/mysql
+      - ./apps/order/initOrder.sql:/docker-entrypoint-initdb.d/init.sql 
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  product-mysql-data:
+  account-mysql-data:
+  cart-mysql-data:
+  order-mysql-data:
+
+networks:
+  default:
+    driver: overlay

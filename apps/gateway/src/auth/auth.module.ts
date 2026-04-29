@@ -1,19 +1,26 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { JwtStrategy } from './jwt.strategy';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 
 @Module({
   imports: [
-    PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '1d' }
-    }),
+    ClientsModule.register([
+      {
+        name: 'ACCOUNT_SERVICE',
+        transport: Transport.RMQ,
+        options: {
+          urls: ['amqp://rabbitmq:5672'],
+          queue: 'account_queue',
+          queueOptions: {
+            durable: false
+          }
+        }
+      }
+    ])
   ],
-  providers: [JwtStrategy, AuthService],
+  providers: [AuthService],
+  exports: [AuthService],
   controllers: [AuthController],
 })
 export class AuthModule {}

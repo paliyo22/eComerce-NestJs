@@ -1,213 +1,79 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, Req, Res, UseGuards, ValidationPipe } from '@nestjs/common';
 import { AccountService } from './account.service';
-import type { Response } from 'express';
-import { CreateAdminDto, CreateBusinessDto, CreateUserDto, UpdateBusinessDto, UpdateUserDto } from 'libs/dtos/acount';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { AccountOutputDto, PartialAccountOutputDto } from './acount-dto';
-import { UpdateAdminDto } from 'libs/dtos/acount/update-admin';
-import { AuthDto } from '../auth/auth-dto';
-import { AddressDto, CreateAddressDto } from 'libs/dtos/address';
-import { CreateStoreDto, StoreDto } from 'libs/dtos/store';
-import { RolesGuard } from '../guards/role.guard';
-import { Roles } from '../decorators/role.decorator';
-import { ERole } from 'libs/shared/role-enum';
+import type { Response, Request } from 'express';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, 
+    Patch, Post, Put, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { AuthDto, AccountOutputDto, CreateAccountDto, UpdateAccountDto, unauthorized, badRequest } from '@app/lib';
+import { ConfigService } from '@nestjs/config';
+import { User } from '../decorators/authGuard.decorator';
+import { JwtAuthGuard } from '../guards/jwtAuth.guard';
+import { cookieMaker } from '../helpers/cookieMaker';
 
 @Controller('account')
 export class AccountController {
-    constructor(private readonly accountService: AccountService){}
+    constructor(
+        private readonly config: ConfigService, 
+        private readonly accountService: AccountService
+    ){}
 
     @Get()
     @UseGuards(JwtAuthGuard)
-    async getInfo(@Req() req): Promise<AccountOutputDto> {
-        return this.accountService.getInfo(req.user.userId);
-    }
-
-    @Post('/admin')
-    async addAdmin(
-        @Body('account') account: CreateAdminDto,
-        @Res({ passthrough: true }) res: Response
-    ): Promise<AuthDto> {
-        const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
-        res.cookie('accessToken', jwtAccess, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refreshToken', partialAccount.refreshToken!, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24
-        });
-        return AuthDto.fromEntity(partialAccount);
-    }
-
-    @Post('/business')
-    async addBusiness(
-        @Body('account') account: CreateBusinessDto,
-        @Res({ passthrough: true }) res: Response
-    ): Promise<AuthDto> {
-        const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
-        res.cookie('accessToken', jwtAccess, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refreshToken', partialAccount.refreshToken!, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24
-        });
-        return AuthDto.fromEntity(partialAccount);
-    }
-
-    @Post('/user')
-    async addUser(
-        @Body('account') account: CreateUserDto,
-        @Res({ passthrough: true }) res: Response
-    ): Promise<AuthDto> {
-        const { partialAccount, jwtAccess } = await this.accountService.addAccount(account);
-        res.cookie('accessToken', jwtAccess, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refreshToken', partialAccount.refreshToken!, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24
-        });
-        return AuthDto.fromEntity(partialAccount);
-    }
-
-    @Put('/admin')
-    @UseGuards(JwtAuthGuard)
-    async updateAdmin(
-        @Body('account') account: UpdateAdminDto,
-        @Req() req
+    async getInfo(
+        @User('accountId') accountId: string
     ): Promise<AccountOutputDto> {
-        return this.accountService.updateAccount(req.user.userId, account, req.user.role);
+        return this.accountService.getInfo(accountId);
     }
 
-    @Put('/business')
+    @Post()
+    @HttpCode(201)
+    async addAccount(
+        @Req() req: Request,
+        @Body() account: CreateAccountDto,
+        @Res({ passthrough: true }) res: Response
+    ): Promise<AuthDto | void> {
+        if(account.adminAccount){
+            throw new UnauthorizedException(unauthorized.message);
+        }
+        const ip = req.ip ?? 'unknown';
+        const device = req.headers['user-agent'] ?? 'unknown';
+        const result = await this.accountService.addAccount(account, ip, device);
+        if(result){
+            res = cookieMaker(res, result.jwtAccess, result.partialAccount.refreshToken!, this.config);
+            return new AuthDto(result.partialAccount);
+        };
+    }
+
+    @Put()
     @UseGuards(JwtAuthGuard)
     async updateBusiness(
-        @Body('account') account: UpdateBusinessDto,
-        @Req() req
-    ): Promise<AccountOutputDto> {
-        return this.accountService.updateAccount(req.user.userId, account, req.user.role);
+        @User('accountId') accountId: string,
+        @Body() account: UpdateAccountDto
+    ): Promise<AccountOutputDto | void> {
+        if(!Object.keys(account).length){
+            throw new BadRequestException(badRequest.message);
+        };
+        if(account.adminAccount){
+            throw new UnauthorizedException(unauthorized.message);
+        };
+        return this.accountService.updateAccount(accountId, account);
     }
 
-    @Put('/user')
+    @Patch()
     @UseGuards(JwtAuthGuard)
-    async updateUser(
-        @Body('account') account: UpdateUserDto,
-        @Req() req
-    ): Promise<AccountOutputDto> {
-        return this.accountService.updateAccount(req.user.userId, account, req.user.role);
+    @HttpCode(204)
+    async changePassword(
+        @User('accountId') accountId: string,
+        @Body() passwords: {oldPassword: string, newPassword:string}
+    ): Promise<void> {
+        await this.accountService.changePassword(accountId, passwords.oldPassword, passwords.newPassword);
     }
 
-    @Post('/address')
+    @Delete('/delete')
     @UseGuards(JwtAuthGuard)
-    async addAddress(
-        @Body('address') address: CreateAddressDto,
-        @Req() req
-    ): Promise<AddressDto[]> {
-        return this.accountService.addAddress(req.user.userId, address);
-    }
-
-    @Post('/store')
-    @UseGuards(JwtAuthGuard)
-    async addStore(
-        @Body('store') store: CreateStoreDto,
-        @Req() req
-    ): Promise<StoreDto[]> {
-        return this.accountService.addStore(req.user.userId, store);
-    }
-
-    @Post('/delete')
-    @UseGuards(JwtAuthGuard)
+    @HttpCode(204)
     async deleteAccount(
-        @Body('password') password: string,
-        @Req() req
-    ): Promise<string> {
-        return this.accountService.deleteAccount(req.user.userId, password);
-    }
-
-    @Get('/admin/list')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(ERole.Admin)
-    async getAccountList(
-        @Req() req,
-        @Query('limit', ParseIntPipe) limit?: number, 
-        @Query('offset', ParseIntPipe) offset?: number
-    ): Promise<PartialAccountOutputDto[]> {
-        return this.accountService.getAccountList(req.user.userId, limit, offset);
-    }
-
-    @Get('/admin/banned-list')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(ERole.Admin)
-    async getBannedList(
-        @Req() req,
-        @Query('limit', ParseIntPipe) limit?: number
-    ): Promise<PartialAccountOutputDto[]> {
-        return this.accountService.getBannedList(req.user.userId, limit);
-    }
-
-
-    @Post('/admin/ban-status/:username')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(ERole.Admin)
-    async changeBannedStatust(
-        @Param('username') username: string,
-        @Req() req
-    ): Promise<string> {
-        return this.accountService.changeBannedStatust(req.user.userId, username);
-    }
-
-    @Delete('/address/:addressId')
-    @UseGuards(JwtAuthGuard)
-    async deleteAddress(
-        @Param('addressId', new ParseUUIDPipe()) addressId: string,
-        @Req() req
-    ): Promise<string> {
-        return this.accountService.deleteAddress(req.user.userId, addressId);
-    }
-
-    @Delete('/store/:storeId')
-    @UseGuards(JwtAuthGuard)
-    async deleteStore(
-        @Param('storeId', new ParseUUIDPipe()) storeId: string,
-        @Req() req
-    ): Promise<string> {
-        return this.accountService.deleteStore(req.user.userId, storeId);
-    }
-
-    // NO IMPLEMENTADAS EN EL FRONT 
-
-    @Get('/admin/search')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(ERole.Admin)
-    async search(
-        @Req() req,
-        @Query('contain') contain: string
-    ): Promise<PartialAccountOutputDto[]> {
-        return this.accountService.search(req.user.userId, contain);
-    }
-
-    @Get('/admin/:username')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(ERole.Admin)
-    async getAccountInfo(
-        @Req() req,
-        @Param('username') username: string
-    ): Promise<AccountOutputDto> {
-        return this.accountService.getAccountInfo(req.user.userId, username);
+        @User('accountId') accountId: string,
+        @Body('password') password: string
+    ): Promise<void> {
+        await this.accountService.deleteAccount(accountId, password);
     }
 }

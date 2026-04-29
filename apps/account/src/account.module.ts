@@ -3,31 +3,40 @@ import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { userEntities } from './entities/list';
-
+import { accountEntities, dbSchema } from '@app/lib';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true
+      isGlobal: true,
+      validationSchema: dbSchema('ACCOUNT')
     }),
-    TypeOrmModule.forFeature(userEntities),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'mysql',
-        host: 'localhost',
-        port: 3306,
-        username: 'root',
-        password: 'cervecero1',
-        database: 'users_db',
-        synchronize: true,
-        //url: process.env.DB_URL,
-        poolSize: 10,
-        timezone: 'Z',
-        entities: userEntities
-      })
-    })
+      useFactory: (config: ConfigService) => {
+        const isProduction = config.get('URL') === 'true';
+        return{
+          type: 'mysql',
+          ...(isProduction
+            ? { url: config.get<string>('ACCOUNT_DB_URL') }
+            : {
+              host: config.get<string>('MYSQL_ACCOUNT_HOST'),
+              port: config.get<number>('MYSQL_PORT'),
+              username: config.get<string>('MYSQL_USER'),
+              password: config.get<string>('MYSQL_PASSWORD'),
+              database: config.get<string>('ACCOUNT_DB_NAME')
+            }
+          ),
+          synchronize: !isProduction,
+          poolSize: 10,
+          timezone: 'Z',
+          entities: accountEntities,
+          retryAttempts: 20,
+          retryDelay: 3000
+        }
+      }
+    }),
+    TypeOrmModule.forFeature(accountEntities)
   ],
   controllers: [AccountController],
   providers: [AccountService]

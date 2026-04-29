@@ -1,14 +1,10 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { PartialAccountDto } from 'libs/dtos/acount/partial-account';
-import { SuccessDto } from 'libs/shared/respuesta';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
-import { AccountOutputDto, PartialAccountOutputDto } from './acount-dto';
-import { AccountDto, CreateAdminDto, CreateBusinessDto, CreateUserDto, UpdateAdminDto, UpdateBusinessDto, UpdateUserDto } from 'libs/dtos/acount';
-import { ERole } from 'libs/shared/role-enum';
-import { AddressDto, CreateAddressDto } from 'libs/dtos/address';
-import { CreateStoreDto, StoreDto } from 'libs/dtos/store';
+import { SuccessDto, PartialAccountDto, AccountOutputDto, withRetry, 
+    CreateAccountDto, UpdateAccountDto } from '@app/lib';
+import { errorManager } from "../helpers/errorManager";
 
 @Injectable()
 export class AccountService {
@@ -18,305 +14,104 @@ export class AccountService {
         private readonly authService: AuthService
     ) {};
 
-    async getInfo(userId: string): Promise<AccountOutputDto> {
+    async getInfo(accountId: string): Promise<AccountOutputDto> {
         try {
             const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
+                this.accountClient.send<SuccessDto<AccountOutputDto>>(
                     {cmd: 'get_info'},
-                    { userId }
-                )
+                    { accountId }
+                ).pipe(withRetry())
             ); 
 
             if(!result.success) {
                 throw new HttpException(result.message!, result.code!);
             };
 
-            const accountInfo = AccountOutputDto.fromEntity(result.data!);
-
-            return accountInfo;
+            return result.data!;
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            throw errorManager(err, 'accounts');
         }   
     }
 
-    async addAccount(account: CreateUserDto | CreateAdminDto | CreateBusinessDto): Promise<{ partialAccount: PartialAccountDto, jwtAccess: string }>{
+    async addAccount(
+        account: CreateAccountDto,
+        ip?: string, 
+        device?: string
+    ): Promise<{ partialAccount: PartialAccountDto, jwtAccess: string } | void>{
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<PartialAccountDto>>(
                     {cmd: 'add_account'},
-                    { account }
-                )
+                    { account, ip, device }
+                ).pipe(withRetry())
             );
 
             if(!result.success) {
                 throw new HttpException(result.message!, result.code!);
             };
-
-            const partialAccount = result.data!;
-            const jwtAccess = await this.authService.generateJwt(partialAccount);
-            return { partialAccount, jwtAccess };
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
+            if(result.data){
+                const jwtAccess = await this.authService.generateJwt(result.data);
+                return { partialAccount: result.data, jwtAccess }; 
             }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err) {
+            throw errorManager(err, 'accounts');
         }   
     }
 
     async updateAccount(
         accountId: string, 
-        account: UpdateAdminDto | UpdateBusinessDto | UpdateUserDto,
-        role: ERole
-    ): Promise<AccountOutputDto> {
+        account: UpdateAccountDto
+    ): Promise<AccountOutputDto | void> {
         try {
             const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
+                this.accountClient.send<SuccessDto<AccountOutputDto>>(
                     {cmd: 'update_account'},
-                    { accountId, account, role }
-                )
+                    { accountId, account }
+                ).pipe(withRetry())
             ); 
 
             if(!result.success) {
                 throw new HttpException(result.message!, result.code!);
             };
-
-            const accountInfo = AccountOutputDto.fromEntity(result.data!);
-
-            return accountInfo;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async addAddress(accountId: string, address: CreateAddressDto): Promise<AddressDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AddressDto[]>>(
-                    {cmd: 'add_address'},
-                    { accountId, address }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
+            if(result.data){
+                return result.data;
             };
-
-            return result.data!;
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            throw errorManager(err, 'accounts');
         }   
     }
 
-    async deleteAddress(accountId: string, addressId: string): Promise<string> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<void>>(
-                    {cmd: 'delete_address'},
-                    { accountId, addressId }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async addStore(accountId: string, store: CreateStoreDto): Promise<StoreDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<StoreDto[]>>(
-                    {cmd: 'add_store'},
-                    { accountId, store }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async deleteStore(accountId: string, storeId: string): Promise<string> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<void>>(
-                    {cmd: 'delete_store'},
-                    { accountId, storeId }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async deleteAccount(accountId: string, password: string): Promise<string> {
+    async deleteAccount(accountId: string, password: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
                     {cmd: 'delete_account'},
                     { accountId, password }
-                )
+                ).pipe(withRetry())
             ); 
 
             if(!result.success) {
                 throw new HttpException(result.message!, result.code!);
             };
-
-            return result.message!;
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            throw errorManager(err, 'accounts');
         }   
     }
 
-    async changeBannedStatust(adminId: string, username: string): Promise<string> {
+    async changePassword(accountId: string, oldPassword: string, newPassword: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
-                    {cmd: 'ban_unban'},
-                    { adminId, username }
-                )
+                    {cmd: 'change_password'},
+                    { accountId, oldPassword, newPassword }
+                ).pipe(withRetry())
             ); 
 
             if(!result.success) {
                 throw new HttpException(result.message!, result.code!);
             };
-
-            return result.message!;
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
+            throw errorManager(err, 'accounts');
+        } 
     }
-
-    async getAccountList(adminId: string, limit?: number, offset?: number): Promise<PartialAccountOutputDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                    {cmd: 'get_account_list'},
-                    { adminId, limit, offset }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
-            return accountList;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async getBannedList(adminId: string, limit?: number): Promise<PartialAccountOutputDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                    {cmd: 'get_banned_list'},
-                    { adminId, limit }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
-            return accountList;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async search(adminId: string, contain: string): Promise<PartialAccountOutputDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                    {cmd: 'search_account'},
-                    { adminId, contain }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            const accountList = result.data!.map((a) => PartialAccountOutputDto.fromEntity(a));
-            return accountList;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async getAccountInfo(adminId: string, username: string): Promise<AccountOutputDto> {
-        try {
-            const result = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
-                    {cmd: 'get_account_info'},
-                    { adminId, username }
-                )
-            ); 
-
-            if(!result.success) {
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            const accountInfo = AccountOutputDto.fromEntity(result.data!);
-
-            return accountInfo;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
 }

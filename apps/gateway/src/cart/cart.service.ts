@@ -1,9 +1,8 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { AddProductToCartDto } from 'libs/dtos/cart/add-cart-product';
-import { CartDto } from 'libs/dtos/cart/cart';
-import { SuccessDto } from 'libs/shared/respuesta';
+import { AddProductToCartDto, CartOutputDto, SuccessDto, withRetry } from '@app/lib';
 import { firstValueFrom } from 'rxjs';
+import { errorManager } from '../helpers/errorManager';
 
 @Injectable()
 export class CartService {
@@ -12,13 +11,13 @@ export class CartService {
         private readonly cartClient: ClientProxy
     ) {};
 
-    async getCart(userId: string): Promise<CartDto> {
+    async getCart(accountId: string, cartId?: string): Promise<CartOutputDto> {
         try {
             const result = await firstValueFrom(
-                this.cartClient.send<SuccessDto<CartDto>>(
+                this.cartClient.send<SuccessDto<CartOutputDto>>(
                     { cmd: 'get_cart' },
-                    { userId }
-                )
+                    { accountId, cartId }
+                ).pipe(withRetry())
             );
 
             if (!result.success) {
@@ -26,104 +25,76 @@ export class CartService {
             }
 
             return result.data!;
-
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'cart');
         }
     }
 
-    async deleteCart(userId: string): Promise<string> {
+    async deleteCart(accountId: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<void>>(
                     { cmd: 'delete_cart' },
-                    { userId }
-                )
+                    { accountId }
+                ).pipe(withRetry())
             );
 
             if (!result.success) {
                 throw new HttpException(result.message!, result.code!);
             }
-
-            return result.message!;
-
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'cart');
         }
     }
 
-    async addToCart(userId: string, productId: string, newProduct: AddProductToCartDto): Promise<string> {
+    async addToCart(accountId: string, newProduct: AddProductToCartDto, cartId?: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<void>>(
                     { cmd: 'add_product_to_cart' },
-                    { userId, productId, newProduct }
-                )
+                    { accountId, newProduct, cartId }
+                ).pipe(withRetry())
             );
 
             if (!result.success) {
                 throw new HttpException(result.message!, result.code!);
             }
-
-            return result.message!;
-
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'cart');
         }
     }
 
-    async setAmount(userId: string, productId: string, amount: number, cartId?: string): Promise<string> {
+    async setAmount(accountId: string, cartProductId: string, amount: number ): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<void>>(
                     { cmd: 'set_amount' },
-                    { userId, productId, amount, cartId }
-                )
+                    { accountId, cartProductId, amount }
+                ).pipe(withRetry())
             );
 
             if (!result.success) {
                 throw new HttpException(result.message!, result.code!);
             }
-
-            return result.message!;
-
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'cart');
         }
     }
 
-    async deleteProductCart(userId: string, productId: string): Promise<string> {
+    async deleteProductCart(accountId: string, cartProductId: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<void>>(
-                    { cmd: 'delete_product_of_cart' },
-                    { userId, productId}
-                )
+                    { cmd: 'delete_product_from_cart' },
+                    { accountId, cartProductId }
+                ).pipe(withRetry())
             );
 
             if (!result.success) {
                 throw new HttpException(result.message!, result.code!);
             }
-
-            return result.message!;
-
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'cart');
         }
     }
 }

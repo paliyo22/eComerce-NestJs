@@ -4,7 +4,7 @@
   "sourceRoot": "apps/gateway/src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "webpack": true,
+    "builder": "tsc",
     "tsConfigPath": "apps/gateway/tsconfig.app.json"
   },
   "monorepo": true,
@@ -37,6 +37,15 @@
         "tsConfigPath": "apps/gateway/tsconfig.app.json"
       }
     },
+    "lib": {
+      "type": "library",
+      "root": "libs/lib",
+      "entryFile": "index",
+      "sourceRoot": "libs/lib/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/lib/tsconfig.lib.json"
+      }
+    },
     "order": {
       "type": "application",
       "root": "apps/order",
@@ -55,13 +64,13 @@
         "tsConfigPath": "apps/product/tsconfig.app.json"
       }
     },
-    "user": {
-      "type": "application",
-      "root": "apps/user",
-      "entryFile": "main",
-      "sourceRoot": "apps/user/src",
+    "redis": {
+      "type": "library",
+      "root": "libs/redis",
+      "entryFile": "index",
+      "sourceRoot": "libs/redis/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/user/tsconfig.app.json"
+        "tsConfigPath": "libs/redis/tsconfig.lib.json"
       }
     }
   }

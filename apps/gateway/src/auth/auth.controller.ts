@@ -1,72 +1,60 @@
-import { Body, Controller, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import type { Response } from 'express';
-import { JwtRefreshGuard } from '../guards/jwt-refresh.guard';
-import { AuthDto } from './auth-dto';
+import type { Response, Request } from 'express';
+import { AuthDto, LoginDto } from '@app/lib';
+import { ConfigService } from '@nestjs/config';
+import { RefreshUser } from '../decorators/refreshGuard.decorator';
+import { JwtRefreshGuard } from '../guards/jwtRefresh.guard';
+import { cookieMaker } from '../helpers/cookieMaker';
+import type { RefreshJwtPayload } from '../interfaces/refreshJwtPayload';
 
 @Controller('auth')
 export class AuthController {
 
-    constructor(private readonly authService: AuthService) {};
+    constructor(
+        private readonly config: ConfigService, 
+        private readonly authService: AuthService
+    ) {};
     
     @Post('/login')
     async logIn(
-        @Body('auth') auth: { account: string; password: string },
+        @Req() req: Request,
+        @Body() auth: LoginDto,
         @Res({ passthrough: true }) res: Response
     ): Promise<AuthDto> {
-        const { partialAccount, jwtAccess } = await this.authService.logIn(
-            auth.account,
-            auth.password
-        );
-        res.cookie('accessToken', jwtAccess, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refreshToken', partialAccount.refreshToken!, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24
-        });
-        return AuthDto.fromEntity(partialAccount);
+        const ip = req.ip ?? 'unknown';
+        const device = req.headers['user-agent'] ?? 'unknown';
+        const { partialAccount, jwtAccess } = await this.authService.logIn(auth.account, auth.password, ip, device);
+        res = cookieMaker(res, jwtAccess, partialAccount.refreshToken!, this.config);
+        return new AuthDto(partialAccount);
     };
 
     @Post('/logout')
     @UseGuards(JwtRefreshGuard)
+    @HttpCode(204)
     async logOut(
-        @Req() req,
+        @Req() req: Request,
+        @RefreshUser('accountId') accountId: string,
         @Res({ passthrough: true }) res: Response
-    ): Promise<string> {
+    ): Promise<void> {
+        const device = req.headers['user-agent'] ?? 'unknown';
         res.clearCookie('accessToken');
         res.clearCookie('refreshToken');
-        return this.authService.logOut(req.user.userId);
+        this.authService.logOut(accountId, device);
     }
 
     @Post('/refresh')
     @UseGuards(JwtRefreshGuard)
     async refresh(
-        @Req() req,
+        @Req() req: Request,
+        @RefreshUser() user: RefreshJwtPayload,
         @Res({ passthrough: true }) res: Response
     ): Promise<AuthDto> {
-        const refreshToken = req.user.refreshToken;
-        const userId = req.user.userId;
-
-        const { partialAccount, jwtAccess, jwtRefresh } = await this.authService.refresh(userId, refreshToken);
-        res.cookie('accessToken', jwtAccess, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refreshToken', jwtRefresh, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24
-        });
-
-        return AuthDto.fromEntity(partialAccount);
+        const ip = req.ip ?? 'unknown';
+        const device = req.headers['user-agent'] ?? 'unknown';
+        const { partialAccount, jwtAccess, jwtRefresh } = await this.authService.refresh(user.accountId, user.refreshToken, ip, device);
+        
+        res = cookieMaker(res, jwtAccess, jwtRefresh, this.config);
+        return new AuthDto(partialAccount);
     }
 }

@@ -13,14 +13,26 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
+    "strictNullChecks": false,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
-    "paths": {}
+    "paths": {
+      "@app/lib": [
+        "./libs/lib/src/index"
+      ],
+      "@app/lib/*": [
+        "./libs/lib/src/*"
+      ],
+      "@app/redis": [
+        "./libs/redis/src/index"
+      ],
+      "@app/redis/*": [
+        "./libs/redis/src/*"
+      ]
+    }
   }
 }

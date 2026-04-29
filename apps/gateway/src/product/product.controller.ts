@@ -1,15 +1,12 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, 
-  ParseEnumPipe, ParseFloatPipe, ParseIntPipe, ParseUUIDPipe, 
-  Patch, Post, Put, Query, Req, UseGuards, ValidationPipe } from '@nestjs/common';
-import { PartialProductDto, UpdateProductDto, CreateProductDto } from 'libs/dtos/product';
-import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
-import { ECategory } from 'libs/shared/category-enum';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, 
+  Get, HttpCode, Param, ParseEnumPipe, ParseFloatPipe, ParseIntPipe, ParseUUIDPipe, 
+  Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ProductService } from './product.service';
-import { RolesGuard } from '../guards/role.guard';
-import { ERole } from 'libs/shared/role-enum';
-import { Roles } from '../decorators/role.decorator';
-import { ProductOutputDto } from './completeProduct';
+import { PartialProductDto, UpdateProductDto, CreateProductDto, ERole, 
+  getRoleGroup, EProductCategory, ProductDto} from '@app/lib';
+import { JwtAuthGuard } from '../guards/jwtAuth.guard';
+import type { JwtPayload } from '../interfaces/JwtPayload';
+import { User } from '../decorators/authGuard.decorator';
 
 @Controller('product')
 export class ProductController {
@@ -17,67 +14,43 @@ export class ProductController {
     private readonly productService: ProductService
   ) {};
 
+  //--------------------- Public Methods ----------------------------------
   @Get('/total')
-  async getTotal(@Query('category') category?: string): Promise<number> {
+  async getTotal(
+    @Query('category', new ParseEnumPipe(EProductCategory, { optional: true })) category?: EProductCategory
+  ): Promise<number> {
     return this.productService.getTotal(category);
   }
 
   @Get()
   async getProductList(
-    @Query('limit') limit?: number, 
-    @Query('offset') offset?: number
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('offset', new ParseIntPipe({ optional: true })) offset?: number
   ): Promise<PartialProductDto[]> {
-    return this.productService.getProductList(undefined, limit, offset);
-  }
-
-  @Get('/me')
-  @UseGuards(JwtAuthGuard)
-  async getMyProductList(
-    @Req() req
-  ): Promise<PartialProductDto[]> {
-    return this.productService.getProductList(req.user.userId);
+    return this.productService.getProductList(limit, offset);
   }
 
   @Get('/category/:category')
   async getProductByCategory(
-    @Param('category', new ParseEnumPipe(ECategory)) category: ECategory,
-    @Query('limit') limit?: number, 
-    @Query('offset') offset?: number
+    @Param('category', new ParseEnumPipe(EProductCategory)) category: EProductCategory,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('offset', new ParseIntPipe({ optional: true })) offset?: number
   ): Promise<PartialProductDto[]> {
     return this.productService.getProductByCategory(category, limit, offset);
   }
 
   @Get('/featured')
   async getFeatured(
-    @Query('limit') limit?: number, 
-    @Query('offset') offset?: number
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('offset', new ParseIntPipe({ optional: true })) offset?: number
   ): Promise<PartialProductDto[]> {
     return this.productService.getFeatured(limit, offset);
   }
 
-  @Post('/review')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ERole.User, ERole.Seller)
-  async addReview (
-    @Body('review', new ValidationPipe({whitelist: true, transform: true})) review: CreateReviewDto,
-    @Req() req
-  ): Promise<ReviewDto[]> {
-    const userId = req.user.userId;
-    return this.productService.addReview(userId, review);
-  }
-
-  @Delete('/review/:productId')
-  @UseGuards(JwtAuthGuard)
-  async deleteReview (
-    @Param('productId', new ParseUUIDPipe()) productId: string,
-    @Req() req
-  ): Promise<string> {
-    const userId = req.user.userId;
-    return this.productService.deleteReview(userId, productId);
-  }
-
   @Get('/search')
-  searchProduct (@Query('contain') contain: string): Promise<PartialProductDto[]> {
+  searchProduct (
+    @Query('contain') contain: string
+  ): Promise<PartialProductDto[]> {
     return this.productService.searchProduct(contain);
   }
 
@@ -88,86 +61,102 @@ export class ProductController {
     return this.productService.accountProductList(username);
   }
 
+  //--------------------- Private Methods ----------------------------------
+  
+  @Post()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(201)
+  async addProduct(
+    @Body() product: CreateProductDto,
+    @User() data: JwtPayload
+  ): Promise<ProductDto> {
+    if(data.role === ERole.User || getRoleGroup(data.role) === ERole.Admin){
+      throw new ForbiddenException();
+    }
+    return this.productService.addProduct(data.accountId, product); 
+  }
+
+  @Get('/me')
+  @UseGuards(JwtAuthGuard)
+  async getMyProductList(
+    @User('accountId') accountId: string,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number
+  ): Promise<PartialProductDto[]> {
+    return this.productService.getMyProductList(accountId, limit);
+  }
+
   @Patch('/discount/:productId')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(204)
   async updateDiscount (
-    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
     @Body('discount', ParseFloatPipe) discount: number,
-    @Req() req
-  ): Promise<string> {
+    @User('accountId') accountId: string,
+  ): Promise<void> {
     if (isNaN(discount) || discount < 0 || discount > 100) {
       throw new BadRequestException('Porcentaje inválido debe ser entre 0-100');
     }
-    const userId = req.user.userId;
-    return this.productService.updateDiscount(userId, productId, discount);
+    await this.productService.updateDiscount(accountId, productId, discount);
   }
 
   @Patch('/price/:productId')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(204)
   async updatePrice (
-    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
     @Body('price', ParseFloatPipe) price: number,
-    @Req() req
-  ): Promise<string> {
-    if (price <= 0) throw new BadRequestException('Precio inválido debe ser mayor a 0');
-    const userId = req.user.userId;
-    return this.productService.updatePrice(userId, productId, price);
+    @User('accountId') accountId: string
+  ): Promise<void> {
+    if (price < 0) throw new BadRequestException('Price can`t be negative');
+    await this.productService.updatePrice(accountId, productId, price);
   }
 
   @Patch('/stock/:productId')
   @UseGuards(JwtAuthGuard)
-  async modifyStock (
-    @Param('productId', new ParseUUIDPipe()) productId: string,
-    @Body('delta', new ParseIntPipe()) delta: number,
-    @Req() req
-  ): Promise<number> {
-    const userId = req.user.userId;
-    return this.productService.modifyStock(userId, productId, delta);
+  @HttpCode(204)
+  async updateStock (
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Body('stock', ParseIntPipe) stock: number,
+    @User('accountId') accountId: string
+  ): Promise<void> {
+    await this.productService.updateStock(accountId, productId, stock);
   }
 
-  @Post()
+  @Patch('/restore/:productId')
   @UseGuards(JwtAuthGuard)
-  async addProduct(
-    @Body('product') product: CreateProductDto,
-    @Req() req
-  ): Promise<ProductOutputDto> {
-    return this.productService.addProduct(req.user.userId, product); 
+  @HttpCode(204)
+  async restoreProduct(
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @User('accountId') accountId: string
+  ): Promise<void> {
+    await this.productService.restoreProduct(accountId, productId);
   }
-
-  @Post('/calculate-rating')
-  @UseGuards(JwtAuthGuard)
-  async calculateRating(): Promise<string> {
-    return this.productService.calculateRating();
-  }
-
-  @Get('/review/user')
-  @UseGuards(JwtAuthGuard)
-  async getAccountReviews(@Req() req): Promise<ReviewDto[]>{
-    const userId = req.user.userId;
-    return this.productService.getAccountReviews(userId)
-  }
+  //--------------------- "/:" ----------------------------------------
 
   @Get('/:productId')
-  async getProductById (@Param('productId', new ParseUUIDPipe()) productId: string): Promise<ProductOutputDto> {
+  async getProductById (
+    @Param('productId', ParseUUIDPipe) productId: string
+  ): Promise<ProductDto> {
     return this.productService.getProductById(productId); 
   }
 
   @Put('/:productId')
   @UseGuards(JwtAuthGuard)
   async updateProduct(
-    @Param('productId', new ParseUUIDPipe()) productId: string,
-    @Body('product') product: UpdateProductDto,
-    @Req() req
-  ): Promise<ProductOutputDto> {
-    return this.productService.updateProduct(req.user.userId, productId, product);
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Body() product: UpdateProductDto,
+    @User('accountId') accountId: string
+  ): Promise<ProductDto> {
+    return this.productService.updateProduct(accountId, productId, product);
   }
 
   @Delete('/:productId')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(204)
   async deleteProduct(
-    @Param('productId', new ParseUUIDPipe()) productId: string,
-    @Req() req
-  ): Promise<string> {
-    return this.productService.deleteProduct(req.user.userId, productId);
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @User('accountId') accountId: string
+  ): Promise<void> {
+    await this.productService.deleteProduct(accountId, productId);
   }
 }

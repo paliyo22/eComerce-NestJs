@@ -1,28 +1,26 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { CreateProductDto, PartialProductDto, ProductDto, UpdateProductDto } from 'libs/dtos/product';
-import { SuccessDto } from 'libs/shared/respuesta';
-import { CreateReviewDto, ReviewDto } from 'libs/dtos/review';
 import { firstValueFrom } from 'rxjs';
-import { ProductOutputDto } from './completeProduct';
-import { AccountDto, PartialAccountDto } from 'libs/dtos/acount';
+import { SuccessDto, CreateProductDto, PartialProductDto, UpdateProductDto, 
+    withRetry, EProductCategory, ProductDto } from '@app/lib';
+import { v4 as uuidv4 } from 'uuid';
+import { errorManager } from '../helpers/errorManager';
 
 @Injectable()
 export class ProductService {
     constructor (
         @Inject('PRODUCT_SERVICE') 
-        private readonly productClient: ClientProxy,
-        @Inject('ACCOUNT_SERVICE') 
-        private readonly accountClient: ClientProxy
+        private readonly productClient: ClientProxy
     ) {};
 
-    async getTotal(category?: string): Promise<number> {
+    async getTotal(category?: EProductCategory): Promise<number> {
         try {
+            const messageId = uuidv4();
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<number>>(
                     {cmd: 'get_total'},
-                    { category }
-                )
+                    { messageId, category }
+                ).pipe(withRetry())
             ); 
 
             if(!result.success) {
@@ -30,21 +28,18 @@ export class ProductService {
             };
 
             return result.data!
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
-    async getProductList(userId?: string, limit?: number, offset?: number): Promise<PartialProductDto[]> {
+    async getProductList(limit?: number, offset?: number): Promise<PartialProductDto[]> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
                     { cmd: 'get_product_list' },
-                    { userId, limit, offset }
-                )
+                    { limit, offset }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -52,21 +47,37 @@ export class ProductService {
             };
 
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
+        }
+    };
+    
+    async getMyProductList(accountId: string, limit?: number): Promise<PartialProductDto[]> {
+        try {
+            const result = await firstValueFrom(
+                this.productClient.send<SuccessDto<PartialProductDto[]>>(
+                    { cmd: 'get_my_product_list' },
+                    { accountId, limit }
+                ).pipe(withRetry())
+            );
+
+            if (!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+
+            return result.data!;
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     };
 
-    async getProductByCategory(category: string, limit?: number, offset?: number): Promise<PartialProductDto[]> {
+    async getProductByCategory(category: EProductCategory, limit?: number, offset?: number): Promise<PartialProductDto[]> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
                     { cmd: 'get_product_by_category' },
                     { category, limit, offset }
-                )
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -74,11 +85,8 @@ export class ProductService {
             };
 
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     };
 
@@ -88,7 +96,7 @@ export class ProductService {
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
                     { cmd: 'get_featured' },
                     { limit, offset }
-                )
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -96,134 +104,18 @@ export class ProductService {
             };
 
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
-    async addReview(userId: string, review: CreateReviewDto): Promise<ReviewDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<ReviewDto[]>>(
-                    { cmd: 'create_review' },
-                    { userId, review }
-                )
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-            
-            let accountList = [] as PartialAccountDto[]
-            if (result.data!.length) {
-                const accounts = result.data!.map((a) => a.accountId);
-
-                const list = await firstValueFrom(
-                    this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                        {cmd: 'get_account_list_info'},
-                        { accounts }
-                    )
-                ); 
-    
-                if(!list.success) {
-                    throw new HttpException(list.message!, list.code!);
-                };
-
-                accountList = list.data!
-            }
-
-            return ReviewDto.loadArray(result.data!, accountList);
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    }
-
-    async getProductById(productId: string): Promise<ProductOutputDto> {
-        try {
-            const product = await firstValueFrom(
-                this.productClient.send<SuccessDto<ProductDto>>(
-                    { cmd: 'get_product_by_id' },
-                    { productId }
-                )
-            );
-
-            if (!product.success){
-                throw new HttpException(product.message!, product.code!);
-            };
-
-            const account = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
-                    {cmd: 'get_info'},
-                    { userId: product.data!.userId }
-                )
-            ); 
-
-            if(!account.success) {
-                throw new HttpException(account.message!, account.code!);
-            };
-
-            let accountList = [] as PartialAccountDto[]
-            if (product.data!.reviews?.length) {
-                const accounts = product.data!.reviews.map((a) => a.accountId);
-
-                const result = await firstValueFrom(
-                    this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                        {cmd: 'get_account_list_info'},
-                        { accounts }
-                    )
-                ); 
-    
-                if(!result.success) {
-                    throw new HttpException(result.message!, result.code!);
-                };
-
-                accountList = result.data!
-            }
-
-            return ProductOutputDto.fromEntities(product.data!, account.data!, accountList);
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }   
-    }
-
-    async deleteReview (userId: string, productId: string): Promise<string> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<void>>(
-                    { cmd: 'delete_review' },
-                    { userId, productId }
-                )
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-            
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    }
-
-    async searchProduct (contain: string): Promise<PartialProductDto[]> {
+    async searchProduct (contains: string, limit?: number): Promise<PartialProductDto[]> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
                     { cmd: 'search' },
-                    { contain }
-                )
+                    { contains, limit }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -231,32 +123,18 @@ export class ProductService {
             };
             
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
     async accountProductList (username: string): Promise<PartialProductDto[]> {
         try {
-            const account = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
-                    {cmd: 'get_account_info'},
-                    { adminId: String(process.env.INTERNAL_PASSWORD), username}
-                )
-            )
-
-            if (!account.success){
-                throw new HttpException(account.message!, account.code!);
-            };
-
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
-                    { cmd: 'account_product_list' },
-                    { userId: account.data!.id }
-                )
+                    { cmd: 'get_account_products' },
+                    { username }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -264,65 +142,88 @@ export class ProductService {
             };
             
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
-    async updateDiscount (userId: string, productId: string, discount: number): Promise<string> {
+    async addProduct(accountId: string, product: CreateProductDto): Promise<ProductDto> {
+        try {
+            const result = await firstValueFrom(
+                this.productClient.send<SuccessDto<ProductDto>>(
+                    { cmd: 'create_product' },
+                    { accountId, product }
+                ).pipe(withRetry())
+            );
+
+            if (!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+
+            return result.data!;
+        } catch (err: any) {
+            throw errorManager(err, 'product');
+        }
+    };
+
+    async updateDiscount (accountId: string, productId: string, discount: number): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<void>>(
                     { cmd: 'update_discount' },
-                    { userId, productId, discount }
-                )
+                    { accountId, productId, discount }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
                 throw new HttpException(result.message!, result.code!);
             };
-            
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
-    async updatePrice (userId: string, productId: string, price: number): Promise<string> {
+    async updatePrice (accountId: string, productId: string, price: number): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<void>>(
                     { cmd: 'update_price' },
-                    { userId, productId, price }
-                )
+                    { accountId, productId, price }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
                 throw new HttpException(result.message!, result.code!);
             };
-            
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
     }
 
-    async modifyStock (userId: string, productId: string, delta: number): Promise<number> {
+    async updateStock (accountId: string, productId: string, stock: number): Promise<void> {
         try {
             const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<number>>(
-                    { cmd: 'modify_stock' },
-                    { userId, productId, delta }
-                )
+                this.productClient.send<SuccessDto<void>>(
+                    { cmd: 'update_stock' },
+                    { accountId, productId, stock }
+                ).pipe(withRetry())
+            );
+
+            if (!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+        } catch (err: any) {
+            throw errorManager(err, 'products');
+        }
+    }
+
+    async getProductById(productId: string): Promise<ProductDto> {
+        try {
+            const result = await firstValueFrom(
+                this.productClient.send<SuccessDto<ProductDto>>(
+                    { cmd: 'get_product' },
+                    { productId }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -330,167 +231,52 @@ export class ProductService {
             };
             
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
+        } catch (err: any) {
+            throw errorManager(err, 'product');
+        }   
     }
 
-    async updateProduct(userId: string, productId: string, product: UpdateProductDto): Promise<ProductOutputDto> {
+    async deleteProduct(accountId: string, productId: string): Promise<void> {
         try {
-            const newProduct = await firstValueFrom(
+            const result = await firstValueFrom(
+                this.productClient.send<SuccessDto<void>>(
+                    { cmd: 'delete_product' },
+                    { accountId, productId }
+                ).pipe(withRetry())
+            );
+
+            if (!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+        } catch (err: any) {
+            throw errorManager(err, 'products');
+        }
+    };
+
+    async restoreProduct(accountId: string, productId: string): Promise<void> {
+        try {
+            const result = await firstValueFrom(
+                this.productClient.send<SuccessDto<void>>(
+                    { cmd: 'restore_product' },
+                    { accountId, productId }
+                ).pipe(withRetry())
+            );
+
+            if (!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+        } catch (err: any) {
+            throw errorManager(err, 'products');
+        }
+    };
+
+    async updateProduct(accountId: string, productId: string, product: UpdateProductDto): Promise<ProductDto> {
+        try {
+            const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<ProductDto>>(
                     { cmd: 'update_product' },
-                    { userId, productId, product }
-                )
-            );
-
-            if (!newProduct.success){
-                throw new HttpException(newProduct.message!, newProduct.code!);
-            };
-
-            const account = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
-                    {cmd: 'get_info'},
-                    { userId }
-                )
-            ); 
-
-            if(!account.success) {
-                throw new HttpException(account.message!, account.code!);
-            };
-
-            let accountList = [] as PartialAccountDto[]
-            if (newProduct.data!.reviews?.length) {
-                const accounts = newProduct.data!.reviews.map((a) => a.accountId);
-
-                const result = await firstValueFrom(
-                    this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                        {cmd: 'get_account_list_info'},
-                        { accounts }
-                    )
-                ); 
-    
-                if(!result.success) {
-                    throw new HttpException(result.message!, result.code!);
-                };
-
-                accountList = result.data!
-            }
-
-            return ProductOutputDto.fromEntities(newProduct.data!, account.data!, accountList);
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    };    
-
-    async addProduct(userId: string, product: CreateProductDto): Promise<ProductOutputDto> {
-        try {
-            const newProduct = await firstValueFrom(
-                this.productClient.send<SuccessDto<ProductDto>>(
-                    { cmd: 'create_product' },
-                    { userId, product }
-                )
-            );
-
-            if (!newProduct.success){
-                throw new HttpException(newProduct.message!, newProduct.code!);
-            };
-
-            const account = await firstValueFrom(
-                this.accountClient.send<SuccessDto<AccountDto>>(
-                    {cmd: 'get_info'},
-                    { userId }
-                )
-            ); 
-
-            if(!account.success) {
-                throw new HttpException(account.message!, account.code!);
-            };
-
-            let accountList = [] as PartialAccountDto[]
-            if (newProduct.data!.reviews?.length) {
-                const accounts = newProduct.data!.reviews.map((a) => a.accountId);
-
-                const result = await firstValueFrom(
-                    this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
-                        {cmd: 'get_account_list_info'},
-                        { accounts }
-                    )
-                ); 
-    
-                if(!result.success) {
-                    throw new HttpException(result.message!, result.code!);
-                };
-
-                accountList = result.data!
-            }
-
-            return ProductOutputDto.fromEntities(newProduct.data!, account.data!, accountList);
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    };
-
-    async deleteProduct(userId: string, productId: string): Promise<string> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<string>>(
-                    { cmd: 'delete_product' },
-                    { userId, productId }
-                )
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    };
-
-    async calculateRating(): Promise<string> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<string>>(
-                    { cmd: 'calculate_rating' },
-                    {}
-                )
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-
-            return result.message!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
-        }
-    };
-
-    async getAccountReviews(userId: string): Promise<ReviewDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<ReviewDto[]>>(
-                    { cmd: 'get_review_by_user' },
-                    { userId }
-                )
+                    { accountId, productId, product }
+                ).pipe(withRetry())
             );
 
             if (!result.success){
@@ -498,11 +284,8 @@ export class ProductService {
             };
 
             return result.data!;
-        } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+        } catch (err: any) {
+            throw errorManager(err, 'products');
         }
-    };
+    };        
 }

@@ -1,38 +1,40 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { PartialAccountDto } from 'libs/dtos/acount/partial-account';
-import { SuccessDto } from 'libs/shared/respuesta';
+import { SuccessDto, PartialAccountDto, withRetry } from '@app/lib';
 import { firstValueFrom } from 'rxjs';
 import { sign } from 'jsonwebtoken';
+import { ConfigService } from '@nestjs/config';
+import { errorManager } from '../helpers/errorManager';
 
 @Injectable()
 export class AuthService {
     constructor (
+        private readonly config: ConfigService, 
         @Inject('ACCOUNT_SERVICE') 
         private readonly accountClient: ClientProxy
     ) {};
 
     async generateJwt(account: PartialAccountDto): Promise<string> {
         const payload = {
-            userId: account.id,
+            accountId: account.id,
             email: account.email,
             role: account.role
         };
 
         return sign (
             payload, 
-            String(process.env.JWT_SECRET),
-            { expiresIn: '1h' }
+            this.config.get<string>('JWT_SECRET')!,
+            { expiresIn: `${this.config.get<number>('ACCESS_TIME')!}Ms` }
         );
     }
     
-    async logIn(account: string, password: string): Promise<{ partialAccount: PartialAccountDto, jwtAccess: string }> {
+    async logIn(account: string, password: string, ip: string, device: string): Promise<{ partialAccount: PartialAccountDto, jwtAccess: string }> {
         try {
         const result = await firstValueFrom(
             this.accountClient.send<SuccessDto<PartialAccountDto>>(
                 { cmd: 'log_in' },
-                { account, password }
-            )
+                { account, password, ip, device }
+            ).pipe(withRetry())
         );
 
         if (!result.success) {
@@ -46,45 +48,30 @@ export class AuthService {
         return { partialAccount, jwtAccess };
 
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            throw errorManager(err, 'auth');
         }
     }
 
-    async logOut(userId: string): Promise<string> {
+    async logOut(accountId: string, device: string): Promise<void> {
         try {
-        const result = await firstValueFrom(
-            this.accountClient.send<SuccessDto<void>>(
-                { cmd: 'log_out' },
-                { userId }
-            )
+        await firstValueFrom(
+            this.accountClient.emit('log.out', { accountId, device }
+            ).pipe(withRetry())
         );
-
-        if (!result.success) {
-            throw new HttpException(result.message!, result.code!);
-        }
-
-        return result.message!;
-
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            errorManager(err, 'auth');
         }
     }
 
-    async refresh(userId: string, refreshToken: string): Promise<{ 
+    async refresh(accountId: string, refreshToken: string, ip: string, device: string): Promise<{ 
         partialAccount: PartialAccountDto, jwtAccess: string, jwtRefresh: string
     }> {
         try {
         const result = await firstValueFrom(
             this.accountClient.send<SuccessDto<PartialAccountDto>>(
                 { cmd: 'refresh' },
-                { userId, refreshToken }
-            )
+                { accountId, refreshToken, ip, device }
+            ).pipe(withRetry())
         );
 
         if (!result.success) {
@@ -96,11 +83,7 @@ export class AuthService {
         return { partialAccount: result.data!, jwtAccess, jwtRefresh: result.data!.refreshToken! };
 
         } catch (err) {
-            if (err instanceof HttpException) {
-                throw err;
-            }
-            throw new HttpException('Error interno comunicando con microservicio', 500);
+            throw errorManager(err, 'auth');
         }
     }
-    
 }

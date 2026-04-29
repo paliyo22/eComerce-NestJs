@@ -1,52 +1,66 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseIntPipe, 
+    ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CartService } from './cart.service';
-import { JwtAuthGuard } from '../guards/jwt-auth.guard';
-import { CartDto } from 'libs/dtos/cart/cart';
-import { AddProductToCartDto } from 'libs/dtos/cart/add-cart-product';
+import { AddProductToCartDto, CartOutputDto, ERole, getRoleGroup } from '@app/lib';
+import { User } from '../decorators/authGuard.decorator';
+import { JwtAuthGuard } from '../guards/jwtAuth.guard';
+import type { JwtPayload } from '../interfaces/JwtPayload';
 
 @Controller('cart')
+@UseGuards(JwtAuthGuard)
 export class CartController {
-    constructor(private readonly cartService: CartService) {};
+    constructor(
+        private readonly cartService: CartService
+    ) {};
 
     @Get()
-    @UseGuards(JwtAuthGuard)
-    async getCart(@Req() req): Promise<CartDto>{
-        return this.cartService.getCart(req.user.userId);
+    async getCart(
+        @User() data: JwtPayload,
+        @Query('cartId', new ParseUUIDPipe({ optional: true })) cartId?: string
+    ): Promise<CartOutputDto>{
+        if(getRoleGroup(data.role) === ERole.Admin)
+            throw new ForbiddenException(`Admin accounts can't make purchases`);
+        
+        return this.cartService.getCart(data.accountId, cartId);
     }
-
-    @Delete()
-    @UseGuards(JwtAuthGuard)
-    async deleteCart(@Req() req): Promise<string>{
-        return this.cartService.deleteCart(req.user.userId);
-    }
-
-    @Post('/:productId')
-    @UseGuards(JwtAuthGuard)
+    
+    @Post()
+    @HttpCode(201)
     async addProductToCart(
-        @Req() req, 
-        @Param('productId') productId: string,
-        @Body('newProduct') newProduct: AddProductToCartDto
-    ): Promise<string>{
-        return this.cartService.addToCart(req.user.userId, productId, newProduct);
+        @User() data: JwtPayload, 
+        @Body() newProduct: AddProductToCartDto,
+        @Query('cartId', new ParseUUIDPipe({ optional: true })) cartId?: string
+    ): Promise<void>{
+        if(getRoleGroup(data.role) === ERole.Admin)
+            throw new ForbiddenException(`Admin accounts can't make purchases`);
+
+        await this.cartService.addToCart(data.accountId, newProduct, cartId);
+    }
+    
+    @Delete()
+    @HttpCode(204)
+    async deleteCart(
+        @User('accountId') accountId: string
+    ): Promise<void>{
+        await this.cartService.deleteCart(accountId);
     }
 
-    @Patch('/:productId')
-    @UseGuards(JwtAuthGuard)
+    @Patch('/:cartProductId')
+    @HttpCode(204)
     async setAmount(
-        @Req() req, 
-        @Param('productId') productId: string,
-        @Query('amount') amount: number,
-        @Query('cartId') cartId?: string
-    ): Promise<string>{
-        return this.cartService.setAmount(req.user.userId, productId, amount, cartId);
+        @User('accountId') accountId: string,
+        @Query('amount', ParseIntPipe) amount: number,
+        @Param('cartProductId', ParseUUIDPipe) cartProductId: string
+    ): Promise<void>{
+        await this.cartService.setAmount(accountId, cartProductId, amount);
     }
 
-    @Delete('/:productId')
-    @UseGuards(JwtAuthGuard)
+    @Delete('/:cartProductId')
+    @HttpCode(204)
     async deleteProductCart(
-        @Req() req,
-        @Param('productId') productId: string,
-    ): Promise<string>{
-        return this.cartService.deleteProductCart(req.user.userId, productId);
+        @User('accountId') accountId: string,
+        @Param('cartProductId', ParseUUIDPipe) cartProductId: string,
+    ): Promise<void>{
+        await this.cartService.deleteProductCart(accountId, cartProductId);
     }
 }

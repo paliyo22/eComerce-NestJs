@@ -1,492 +1,611 @@
 import { Injectable } from '@nestjs/common';
-import { PartialAccountDto } from 'libs/dtos/acount/partial-account';
-import { SuccessDto } from 'libs/shared/respuesta';
 import { sign } from 'jsonwebtoken';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Account, Address, AdminProfile, BusinessProfile, Meta, RefreshToken, Role, Store, UserProfile } from 'apps/account/src/entities';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { compare, hash} from 'bcrypt';
-import { AccountDto, CreateAdminDto, CreateBusinessDto, CreateUserDto, UpdateAdminDto, UpdateBusinessDto, UpdateUserDto } from 'libs/dtos/acount';
-import { AddressDto, CreateAddressDto } from 'libs/dtos/address';
-import { CreateStoreDto, StoreDto } from 'libs/dtos/store';
-import { ERole, getRoleGroup } from 'libs/shared/role-enum';
-import { uuidTransformer } from 'libs/shared';
+import { ConfigService } from '@nestjs/config';
+import { SuccessDto, PartialAccountDto, Account, Address, AdminProfile, BusinessProfile, 
+  MetaA, RefreshToken, Store, UserProfile, AccountDto, AddressDto, CreateAddressDto, 
+  CreateStoreDto, StoreDto, Status, ERole, getRoleGroup, errorMessage, EAccountStatus, 
+  badRequest, banned, suspended, unauthorized, Balance, notFound, AccountOutputDto, 
+  PartialAccountOutputDto, Withdrawal, WithdrawalDto, EStateStatus, EBalanceStatus, 
+  CreateAccountDto, UpdateAccountDto } from '@app/lib';
 
 @Injectable()
 export class AccountService {
   constructor(
+    private readonly config: ConfigService, 
     @InjectRepository(Account)
     private readonly accountRepository: Repository<Account>,
+    @InjectRepository(Balance)
+    private readonly balanceRepository: Repository<Balance>,
+    @InjectRepository(Withdrawal)
+    private readonly withdrawalRepository: Repository<Withdrawal>,
     @InjectRepository(RefreshToken)
     private readonly refreshRepository: Repository<RefreshToken>,
+    @InjectRepository(Address)
+    private readonly addressRepository: Repository<Address>,
+    @InjectRepository(Store)
+    private readonly storeRepository: Repository<Store>,
+    @InjectRepository(MetaA)
+    private readonly metaRepository: Repository<MetaA>,
+    @InjectRepository(Status)
+    private readonly statusRepository: Repository<Status>
   ) {}
 
+  private completeAccount() {
+    return this.accountRepository
+      .createQueryBuilder('account')
+      .innerJoinAndSelect('account.meta', 'meta')
+      .leftJoinAndSelect('meta.role', 'role')
+      .leftJoinAndSelect('meta.status', 'status')
+      .leftJoinAndSelect('account.userProfile', 'userProfile')
+      .leftJoinAndSelect('account.businessProfile', 'businessProfile')
+      .leftJoinAndSelect('account.adminProfile', 'adminProfile')
+      .leftJoinAndSelect('account.stores', 'store')
+      .leftJoinAndSelect('store.address', 'storeAddress')
+      .leftJoinAndSelect('account.addresses', 'address');
+  }
+
+  private partialAccount() {
+    return this.accountRepository
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.meta', 'm')
+      .leftJoinAndSelect('m.role', 'r')
+      .leftJoinAndSelect('m.status', 's');
+  }
+
   private async hashPassword(raw: string): Promise<string> {
-    return hash(raw, Number(process.env.SALT));
+    return hash(raw, this.config.get<number>('SALT')!);
   }
 
-  private async generateJwt(account: PartialAccountDto): Promise<string> {
-    const payload = { userId: account.id };
-    return sign(payload, String(process.env.JWT_REFRESH_SECRET), { expiresIn: '1d' });
-  }
+  private generateJwtRefresh(accountId: string): string {
+    const payload = { accountId };
+    return sign(
+      payload, 
+      this.config.get<string>('JWT_REFRESH_SECRET')!, 
+      { expiresIn: `${this.config.get<number>('REFRESH_TIME')!}Ms` }
+    );
+  };
 
-  private async saveToken(accountId: string, refreshToken: string): Promise<void> {
-    await this.refreshRepository.delete({accountId});
+  private async saveRefreshToken(accountId: string, ip: string, device: string): Promise<string> {
+    const refreshToken = this.generateJwtRefresh(accountId);
+
     const entity = this.refreshRepository.create({
-      id: refreshToken,
+      token: refreshToken,
       accountId,
-      device: 'unknown',
-      ip: 'unknown',
-      expiredAt: new Date(Date.now() + 86400000)
+      device,
+      ip,
+      expiredAt: new Date(Date.now() + this.config.get<number>('REFRESH_TIME')!)
     });
 
-    await this.refreshRepository.save(entity);
+    await this.refreshRepository.upsert(entity, ['accountId', 'device']);
+    return refreshToken;
   }
 
-  async getAccount (accountId: string): Promise<SuccessDto<Account>> {
+  private async getAccount (accountId: string): Promise<SuccessDto<Account>> {
     try {
       console.log(accountId);
-      const account = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('meta.status', 'status')
-        .leftJoinAndSelect('account.userProfile', 'userProfile')
-        .leftJoinAndSelect('account.businessProfile', 'businessProfile')
-        .leftJoinAndSelect('account.adminProfile', 'adminProfile')
-        .leftJoinAndSelect('account.stores', 'store')
-        .leftJoinAndSelect('store.address', 'storeAddress')
-        .leftJoinAndSelect('account.addresses', 'address')
-        .where('account.id = UUID_TO_BIN(:id)', { id: accountId })
+      const qb = this.completeAccount();
+      const account = await qb.where('account.id = :id', { id: accountId })
         .getOne();
 
       if (!account) {
-        return { success: false, message: 'Token inválido o usuario inexistente.', code: 401 };
+        return notFound;
       }
 
-      return { success: true, data: account };
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener la información de la cuenta',
+      return { 
+        success: true, 
+        data: account 
       };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async logIn(account: string, password: string): Promise<SuccessDto<PartialAccountDto>> {
+  private async getPartialAccount (id: string): Promise<SuccessDto<Account>> {
     try {
-      const acc = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('meta.status', 'status')
-        .where('account.email = :acc OR account.username = :acc', { acc: account })
+      const qb = this.partialAccount();
+      const account = await qb.where('a.id = :id', { id })
         .getOne();
 
-      if (!acc){
-        return { success: false, message: 'Cuenta no encontrada', code: 400 };
+      if (!account) {
+        return notFound;
       }
 
-      if (acc.meta.status.slug === 'banned') {
-        return {
-          success: false,
-          message: 'Cuenta suspendida temporalmente',
-          code: 403
-        };
+      return { 
+        success: true, 
+        data: account
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async logIn(account: string, password: string, ip: string, device: string): Promise<SuccessDto<PartialAccountDto>> {
+    try {
+      const qb = this.partialAccount()
+      const results = await qb.where('a.email = :acc', { acc: account })
+        .orWhere('a.username = :acc', { acc: account })
+        .getMany();
+
+      const acc = results.find(r => r.email === account) ?? results[0] ?? null;
+
+      if (!acc){
+        return badRequest;
+      }
+
+      if (acc.meta.status.slug === EAccountStatus.Banned) {
+        return banned;
+      }
+
+      if (acc.meta.status.slug === EAccountStatus.Suspended) {
+        return suspended;
       }
 
       const valid = await compare(password, acc.password);
       if (!valid){
-        return { success: false, message: 'Credenciales inválidas', code: 400 };
+        return badRequest;
       }
 
-      const result = PartialAccountDto.fromEntity(acc);
-      result.refreshToken = await this.generateJwt(result);
-
-      await this.saveToken(result.id, result.refreshToken);
+      const result = new PartialAccountDto(acc);
+    
+      result.refreshToken = await this.saveRefreshToken(result.id, ip, device);
 
       return { success: true, data: result };
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al conectar con la base de datos de cuenta',
-      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async logOut(userId: string): Promise<SuccessDto<void>> {
+  async logOut(accountId: string, device: string): Promise<void> {
     try {
       await this.refreshRepository
         .createQueryBuilder()
         .delete()
-        .where('account_id = UUID_TO_BIN(:id)', { id: userId })
-        .andWhere('device = :device', {device: 'unknown'})
+        .where('accountId = :accountId', { accountId })
+        .andWhere('device = :device', {device})
         .execute();
 
-
-      return { 
-        success: true, 
-        message: 'Hasta la proxima' 
-      };
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al conectar con la base de datos de cuenta',
-      };
+    } catch (err: any) {
+      errorMessage(err);
     }
   }
 
-  async refresh(userId: string, refreshToken: string): Promise<SuccessDto<PartialAccountDto>> {
+  async refresh(accountId: string, refreshToken: string, ip: string, device: string): Promise<SuccessDto<PartialAccountDto>> {
     try {
-      const token = await this.refreshRepository.findOne({
-        where: { id: refreshToken, accountId: userId }
-      });
+      const token = await this.refreshRepository.createQueryBuilder()
+      .where('accountId = :accountId', { accountId })
+      .andWhere('device = :device', { device })
+      .andWhere('token = :tk', { tk: refreshToken })
+      .getOne();
 
       if (!token) {
-        return { success: false, message: 'Token inválido', code: 400 };
+        return badRequest;
       }
 
       if (token.expiredAt.getTime() < Date.now()) {
-        await this.refreshRepository.delete({ id: refreshToken });
-        return { success: false, message: 'Token expirado', code: 400 };
+        await this.refreshRepository.createQueryBuilder()
+          .delete()
+          .where('accountId = :accountId', { accountId })
+          .andWhere('token = :tk', { tk: refreshToken })
+          .execute();
+        return badRequest;
       }
 
-      const acc = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('meta.status', 'status')
-        .where('account.id = UUID_TO_BIN(:id)', { id: userId })
-        .getOne();
-
-      if (!acc) {
-        return { success: false, message: 'Cuenta no encontrada', code: 404 };
+      const account = await this.getPartialAccount(accountId);
+      if(!account.success){
+        return {
+          success: account.success, 
+          code: account.code, 
+          message: account.message
+        };
       }
 
-      if (acc.meta.status.slug === 'banned') {
-        return { success: false, message: 'Cuenta suspendida temporalmente', code: 403 };
+      if (account.data!.meta.status.slug === EAccountStatus.Banned) {
+        return banned;
       }
 
-      const partial = PartialAccountDto.fromEntity(acc);
-      const newToken = await this.generateJwt(partial);
+      if (account.data!.meta.status.slug === EAccountStatus.Suspended) {
+        return suspended;
+      }
 
-      await this.refreshRepository.delete({ id: refreshToken });
+      const partial = new PartialAccountDto(account.data!);
+      
+      partial.refreshToken = await this.saveRefreshToken(accountId, ip, device);
 
-      await this.saveToken(userId, newToken);
-
-      partial.refreshToken = newToken;
-
-      return { success: true, data: partial };
-
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al conectar con la base de datos de cuenta',
+      return { 
+        success: true, 
+        data: partial 
       };
+
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async addAccount(dto: CreateAdminDto | CreateBusinessDto | CreateUserDto): Promise<SuccessDto<PartialAccountDto>> {
+  async getInfo(accountId: string): Promise<SuccessDto<AccountOutputDto>> {
     try {
-      const existing = await this.accountRepository
-        .createQueryBuilder('acc')
-        .where('acc.email = :email OR acc.username = :username', {
-          email: dto.email,
-          username: dto.username,
-        })
-        .getOne();
+      const account = await this.getAccount(accountId);
+      if(!account.success){
+        return {
+          success: account.success, 
+          code: account.code, 
+          message: account.message
+        };
+      }
 
-      if (existing) return { success: false, message: 'El email o usuario ya está en uso', code: 400 };
+      if(!account.data) return badRequest;
 
-      const role = await this.accountRepository.manager
-        .getRepository(Role)
-        .createQueryBuilder('role')
-        .where('role.slug = :slug', { slug: dto.role })
-        .getOne();
+      const accountDto = new AccountOutputDto(account.data);
 
-      if (!role) return { success: false, message: `Rol ${dto.role} no encontrado`, code: 500 };
+      return { 
+        success: true, 
+        data: accountDto 
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
 
-      let accountId: string;
-      await this.accountRepository.manager.transaction(async manager => {
-        const hashed = await this.hashPassword(dto.password);
-        const account = manager.create(Account, {
+  async addAccount(
+    dto: CreateAccountDto,
+    ip: string, 
+    device: string
+  ): Promise<SuccessDto<PartialAccountDto>> {
+    try {
+      if(dto.adminAccount){
+        return badRequest;
+      };
+
+      const hashed = await this.hashPassword(dto.password);
+
+      const accountEntity = await this.accountRepository.manager.transaction(async manager => {
+        const account = await manager.save(Account, {
           username: dto.username,
           email: dto.email,
           password: hashed,
         });
-        await manager.save(account);
-        accountId = account.id;
 
-        await manager.insert(Meta, {
-          accountId: account.id,
-          roleId: role.id
+        await manager.save(MetaA, { 
+          accountId: account.id
         });
 
-        if (getRoleGroup(dto.role) === 'admin' && 'publicName' in dto) {
-          await manager.insert(AdminProfile, {
+        if(dto.businessAccount){
+          await manager.save(BusinessProfile, {
             accountId: account.id,
-            publicName: dto.publicName
+            title: dto.businessAccount.title,
+            bio: dto.businessAccount.bio ?? null,
+            phone: dto.businessAccount.phone
           });
-        } else if (getRoleGroup(dto.role) === 'business' && 'title' in dto) {
-          await manager.insert(BusinessProfile, {
+        };
+
+        if(dto.userAccount){
+          await manager.save(UserProfile, {
             accountId: account.id,
-            title: dto.title,
-            bio: dto.bio ?? null,
-            phone: dto.phone,
-            contactEmail: dto.contactEmail ?? dto.email
+            firstname: dto.userAccount.firstname,
+            lastname: dto.userAccount.lastname,
+            birth: dto.userAccount.birth ? new Date(dto.userAccount.birth) : null,
+            phone: dto.userAccount.phone ?? null
           });
-        } else if (getRoleGroup(dto.role) === 'user' && 'firstname' in dto) {
-          await manager.insert(UserProfile, {
-            accountId: account.id,
-            firstname: dto.firstname,
-            lastname: dto.lastname,
-            birth: dto.birth ? new Date(dto.birth) : null,
-            phone: dto.phone ?? null
-          });
-        }
+        };
+
+        return await manager
+          .createQueryBuilder(Account, 'a')
+          .innerJoinAndSelect('a.meta', 'm')
+          .leftJoinAndSelect('m.role', 'r')
+          .leftJoinAndSelect('m.status', 's')
+          .where('a.id = :id', { id: account.id })
+          .getOne();
       });
 
-      const accountEntity = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.role', 'role')
-        .leftJoinAndSelect('meta.status', 'status')
-        .where('account.id = UUID_TO_BIN(:id)', { id: accountId! })
-        .getOne();
-
-      if(!accountEntity){
-        return { success: false, message: 'Error al buscar el usuario', code: 455 };
-      }
-      const partial = PartialAccountDto.fromEntity(accountEntity);
-      const refreshToken = await this.generateJwt(partial);
-      await this.saveToken(accountId!, refreshToken);
-      partial.refreshToken = refreshToken;
-
-      return { success: true, data: partial };
-    } catch (err) {
+      const partial = new PartialAccountDto(accountEntity);
+      try{
+        partial.refreshToken = await this.saveRefreshToken(accountEntity.id, ip, device);
+      } catch {
+        console.error('Failure trying to save the refreshToken on addAccount');
+      };
+      if(partial.refreshToken){
+        return { 
+          success: true, 
+          data: partial
+        };
+      }else{
+        return {
+          success: true
+        };
+      };
+    } catch (err: any) {
       if (err.code === 'ER_DUP_ENTRY') {
         if (err.message.includes('account.email')) {
-          return { success: false, message: 'El email ya está en uso', code: 400 };
+          return { 
+            success: false, 
+            message: 'EMAIL_NOT_AVAILABLE', 
+            code: 400 
+          };
         }
         if (err.message.includes('account.username')) {
-          return { success: false, message: 'El username ya está en uso', code: 400 };
-        }
-        if (err.message.includes('admin_profile.public_name')) {
-          return { success: false, message: 'El publicName ya está en uso', code: 400 };
+          return {
+            success: false, 
+            message: 'USERNAME_NOT_AVAILABLE', 
+            code: 400 
+          };
         }
       }
-      return { success: false, code: 500, message: err.message ?? 'Error al crear cuenta' };
+      return errorMessage(err);
     }
   }
 
-  async getInfo(accountId: string): Promise<SuccessDto<AccountDto>> {
-    try {
-      const account = await this.getAccount(accountId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
-      const accountDto = AccountDto.fromEntity(account.data!);
-
-      return { success: true, data: accountDto };
-    } catch (err) {
-      return {
-        success: false,
-        code: 500,
-        message: err?.message ?? 'Error al obtener la información de la cuenta',
-      };
-    }
-  }
-
-  async updateAccount(accountId: string, dto: UpdateAdminDto | UpdateBusinessDto | UpdateUserDto, role: ERole): Promise<SuccessDto<AccountDto>> {
+  async updateAccount(
+    accountId: string, 
+    dto: UpdateAccountDto
+  ): Promise<SuccessDto<AccountOutputDto>> {
     try {
       const current = await this.getAccount(accountId);
       if (!current.success) {
-        return { success: current.success, code: current.code, message: current.message };
+        return { 
+          success: current.success, 
+          code: current.code, 
+          message: current.message 
+        };
       }
       const account = current.data!;
+      let accountChanges = false;
+      let profileChanges = false;
 
-      let mergedAccount = {};
-      if(dto.email || dto.username || dto.password) {
-        mergedAccount = {
-          email: dto.email ?? account.email,
-          username: dto.username ?? account.username,
-          password: dto.password ? await this.hashPassword(dto.password) : account.password,
+      if (
+        (dto.businessAccount && !account.businessProfile) || 
+        (dto.userAccount && !account.userProfile) || 
+        (dto.adminAccount && !account.adminProfile)
+      ) return unauthorized;
+
+      if(dto.email || dto.username){
+        accountChanges = true;
+        account.email = dto.email ?? account.email;
+        account.username = dto.username ?? account.username;
+      }
+
+      if(dto.adminAccount){
+        profileChanges = true;
+        account.adminProfile.publicName = dto.adminAccount.publicName;
+      };
+      if(dto.businessAccount){
+        profileChanges = true;
+        account.businessProfile.title = dto.businessAccount.title ?? account.businessProfile!.title;
+        account.businessProfile.bio = dto.businessAccount.bio ?? account.businessProfile!.bio;
+        account.businessProfile.phone = dto.businessAccount.phone ?? account.businessProfile!.phone;
+      };
+      if(dto.userAccount){
+        profileChanges = true;
+        account.userProfile.firstname = dto.userAccount.firstname ?? account.userProfile.firstname;
+        account.userProfile.lastname = dto.userAccount.lastname ?? account.userProfile.lastname;
+        account.userProfile.birth = dto.userAccount.birth ?? account.userProfile.birth;
+        account.userProfile.phone = dto.userAccount.phone ?? account.userProfile.phone;  
+      };
+
+      if(!accountChanges && !profileChanges) return badRequest;
+
+      if(profileChanges){
+        await this.accountRepository.manager.transaction(async manager => {
+          if(accountChanges){
+            await manager.createQueryBuilder()
+              .update(Account)
+              .set({ email: account.email, username: account.username})
+              .where('id = :id', { id: accountId })
+              .execute();
+          };
+          if(dto.adminAccount){
+            await manager.save(AdminProfile, account.adminProfile!);
+          }else if(dto.businessAccount){
+            await manager.save(BusinessProfile, account.businessProfile!);
+          }else {
+            await manager.save(UserProfile, account.userProfile!);
+          }
+        });
+      }else {
+        await this.accountRepository.createQueryBuilder()
+          .update(Account)
+          .set({ email: account.email, username: account.username})
+          .where('id = :id', { id: accountId })
+          .execute();
+      };
+      
+      const result = await this.getInfo(accountId);
+      if(!result.success){
+        return{
+          success: true
+        };
+      }
+      return result;
+    } catch (err: any) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        if (err.message.includes('account.email')) {
+          return { 
+            success: false, 
+            message: 'EMAIL_NOT_AVAILABLE', 
+            code: 400 
+          };
+        }
+        if (err.message.includes('account.username')) {
+          return {
+            success: false, 
+            message: 'USERNAME_NOT_AVAILABLE', 
+            code: 400 
+          };
+        }
+      }
+      return errorMessage(err);
+    }
+  }
+
+  async deleteAccount(accountId: string, password: string): Promise<SuccessDto<void>> {
+    try {
+      const account = await this.getPartialAccount(accountId);
+      if(!account.success){
+        return {
+          success: account.success, 
+          code: account.code, 
+          message: account.message
+        };
+      }
+
+      const valid = await compare(password, account.data!.password);
+      if (!valid){
+        return badRequest;
+      }
+
+      const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Inactive }});
+      if(!newStatus){
+        throw new Error('Error finding the banned id on the Data Base');
+      };
+      await this.metaRepository
+        .createQueryBuilder()
+        .update(MetaA)
+        .set({ deletedBy: accountId, deleted: new Date(), statusId: newStatus.id })
+        .where('accountId = :accountId', { accountId })
+        .execute();
+
+      return { success: true };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async changePassword(accountId: string, oldPassword: string, newPassword: string): Promise<SuccessDto<void>> {
+    try {
+      const result = await this.getPartialAccount(accountId);
+      if(!result.success){
+        return {
+          success: false,
+          code: result.code,
+          message: result.message
         }
       };
 
-      let mergedProfile = {};
-      if (getRoleGroup(role) === 'admin' && 'publicName' in dto){
-        if(!account.adminProfile) {
-          throw new Error('ACCOUNT_ERROR');
-        }
-        if(dto.publicName){
-          mergedProfile = {
-            publicName: dto.publicName ?? account.adminProfile.publicName,
-          };  
-        }
-      }else if (getRoleGroup(role) === 'business') {
-        if(!account.businessProfile) {
-          throw new Error('ACCOUNT_ERROR');
-        }
-        const b = dto as UpdateBusinessDto
-        if (b.title || 'bio' in b || b.phone || b.contactEmail) {
-          mergedProfile  = {
-            title: b.title ?? account.businessProfile.title,
-            bio: b.bio ?? account.businessProfile.bio,
-            phone: b.phone ?? account.businessProfile.phone,
-            contactEmail: b.contactEmail ?? account.businessProfile.contactEmail
-          };
-        }
-      }else if (getRoleGroup(role) === 'user') {
-        if(!account.userProfile) {
-          throw new Error('ACCOUNT_ERROR');
-        }
-        const u = dto as UpdateUserDto;
-        if(u.firstname || u.lastname || 'birth' in u || 'phone' in u ){
-          let newBirth = u.birth ? new Date(u.birth) : account.userProfile?.birth;
-          if(u.birth === "") {
-            newBirth = null;
-          }
-          mergedProfile = {
-            firstname: u.firstname ?? account.userProfile?.firstname,
-            lastname: u.lastname ?? account.userProfile?.lastname,
-            birth: newBirth,
-            phone: u.phone ?? account.userProfile?.phone
-          };
-        }
-      }
+      const valid = await compare(oldPassword, result.data!.password);
+      if(!valid){
+        return badRequest;
+      };
 
-      if (Object.keys(mergedAccount).length === 0 && Object.keys(mergedProfile).length === 0) {
-        return { success: false, code: 400, message: "No hay cambios para aplicar" };
-      }
-
-      await this.accountRepository.manager.transaction(async manager => {
-        if (Object.keys(mergedAccount).length > 0) {
-          await manager
-            .createQueryBuilder()
-            .update(Account)
-            .set({
-              ...mergedAccount
-            })
-            .where('id = UUID_TO_BIN(:id)', { id: accountId })
-            .execute();
-        }
-        if (Object.keys(mergedProfile).length > 0) {
-          switch (getRoleGroup(role)){
-            case 'user':
-              await manager
-                .createQueryBuilder()
-                .update(UserProfile)
-                .set({
-                  ...mergedProfile
-                })
-                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
-                .execute();
-              break;
-            case 'business':
-              await manager
-                .createQueryBuilder()
-                .update(BusinessProfile)
-                .set({
-                  ...mergedProfile
-                })
-                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
-                .execute();
-              break;
-            case 'admin':
-              await manager
-                .createQueryBuilder()
-                .update(AdminProfile)
-                .set({
-                  ...mergedProfile
-                })
-                .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
-                .execute();
-              break;
-          }
-        }
-      });
-      return await this.getInfo(accountId);
-    } catch (err) {
-      if(err.message === 'ACCOUNT_ERROR'){
-        return { success: false, code: 409, message: 'Error grave en su cuenta, contacte a soporte'};
-      }
-      return { success: false, code: 500, message: err.message ?? 'Error al actualizar la cuenta' };
+      const hashed = await this.hashPassword(newPassword);
+      await this.accountRepository.update({id: accountId}, { password: hashed });
+      
+      return { success: true };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async addAddress(userId: string, dto: CreateAddressDto): Promise<SuccessDto<AddressDto[]>> {
+  async getAddress(accountId: string): Promise<SuccessDto<AddressDto[]>>{
     try {
-      const account = await this.accountRepository.findOne({ where: { id: userId } });
-      if (!account) {
-        return { success: false, message: 'Cuenta no encontrada', code: 404 };
-      }
+      const addresses = await this.addressRepository
+        .createQueryBuilder('a')
+        .where('a.accountId = :accountId', {accountId})
+        .getMany();
 
-      const addresses = await this.accountRepository.manager.transaction(async manager => {
-        const address = manager.create(Address, {
-          account: { id: userId },
-          address: dto.address,
-          apartment: dto.apartment ?? null,
-          city: dto.city,
-          zip: dto.zip,
-          country: dto.country
-        });
+      if(!addresses.length){
+        return {
+          success: true,
+          data: []
+        };
+      };
 
-        await manager.save(address);
+      const data = addresses.map((a) => new AddressDto(a));
 
-        return manager
-          .getRepository(Address)
-          .createQueryBuilder('address')
-          .where('address.account_id =  UUID_TO_BIN(:id)', { id: userId })
-          .getMany();
-      });
-
-      return { success: true, data: addresses.map(AddressDto.fromEntity) };
-    } catch (err) {
-      return { success: false, code: 500, message: err.message ?? 'Error al agregar dirección' };
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async deleteAddress(userId: string, addressId: string): Promise<SuccessDto<void>> {
+  async addAddress(accountId: string, dto: CreateAddressDto): Promise<SuccessDto<AddressDto>> {
     try {
-      const result = await this.accountRepository.manager
-        .getRepository(Address)
+      const address = await this.addressRepository.save({
+        accountId: accountId,
+        address: dto.address,
+        apartment: dto.apartment ?? null,
+        city: dto.city,
+        zip: dto.zip,
+        country: dto.country
+      });
+
+      return { success: true, data: new AddressDto(address) };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async deleteAddress(accountId: string, addressId: string): Promise<SuccessDto<void>> {
+    try {
+      const result = await this.addressRepository
         .createQueryBuilder()
         .delete()
-        .where('id =  UUID_TO_BIN(:addressId)', { addressId })
-        .andWhere('account_id =  UUID_TO_BIN(:userId)', { userId })
+        .where('accountId = :accountId', {accountId})
+        .andWhere('id = :id', { id: addressId })
         .execute();
 
-      if (result.affected === 0) {
-        return { success: false, message: 'Dirección no encontrada o no pertenece al usuario', code: 404 };
-      }
+      if (!result.affected) {
+        return notFound
+      };
 
-      return { success: true, message: 'Dirección eliminada correctamente' };
-    } catch (err) {
-      return { success: false, code: 500, message: err.message ?? 'Error al eliminar dirección' };
+      return { 
+        success: true
+      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async addStore(userId: string, dto: CreateStoreDto): Promise<SuccessDto<StoreDto[]>> {
+  async getStores(accountId?: string, username?: string): Promise<SuccessDto<StoreDto[]>> {
     try {
-      const account = await this.accountRepository.findOne({ where: { id: userId } });
-      if (!account) {
-        return { success: false, message: 'Cuenta no encontrada', code: 404 };
+      const qb = this.accountRepository
+        .createQueryBuilder('a')
+        .innerJoinAndSelect('a.meta', 'm')
+        .leftJoinAndSelect('m.status', 'st')
+        .leftJoinAndSelect('a.stores', 's')
+        .leftJoinAndSelect('s.address', 'sa');
+      if(!accountId && !username){
+        return badRequest;
+      }else{
+        if(accountId){
+          qb.where('a.id = :accountId', {accountId});
+        }else{
+          qb.where('a.username = :username', {username});
+        };
+      };
+      const result = await qb.getOne();
+
+      if(!result){
+        return notFound;
       }
 
-      const stores = await this.accountRepository.manager.transaction(async manager => {
-        const store = manager.create(Store, {
-          account: {id: userId},
-          phone: dto.phone,
-          verified: true
-        });
-        await manager.save(store);
+      if(result.meta.status.slug === EAccountStatus.Banned){
+        return banned;
+      }
 
-        const address = manager.create(Address, {
+      const data: StoreDto[] = []; 
+      result.stores.forEach((s) => { data.push(new StoreDto(s)) });
+      return {
+        success: true,
+        data
+      }      
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  } 
+  
+  async addStore(accountId: string, dto: CreateStoreDto): Promise<SuccessDto<StoreDto>> {
+    try {
+      const result = await this.storeRepository.manager.transaction(async manager => {
+        const store = await manager.save(Store, {
+          accountId: accountId,
+          phone: dto.phone
+        });
+
+        const address = await manager.save(Address, {
           storeId: store.id,
           address: dto.address,
           apartment: dto.apartment ?? null,
@@ -494,301 +613,637 @@ export class AccountService {
           zip: dto.zip,
           country: dto.country
         });
-        await manager.save(address);
 
-        return manager
-          .getRepository(Store)
-          .createQueryBuilder('store')
-          .leftJoinAndSelect('store.address', 'address')
-          .where('store.account_id =  UUID_TO_BIN(:userId)', { userId })
-          .getMany();
-      });
+        store.address = address;
 
-      return { success: true, data: stores.map(StoreDto.fromEntity) };
-    } catch (err) {
-      return { success: false, code: 500, message: err.message ?? 'Error al agregar tienda' };
+        return store;
+      }); 
+
+      return { 
+        success: true, 
+        data: new StoreDto(result)
+      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async deleteStore(userId: string, storeId: string): Promise<SuccessDto<void>> {
+  async deleteStore(accountId: string, storeId: string): Promise<SuccessDto<void>> {
     try {
-      await this.accountRepository.manager.transaction(async manager => {
-        const store = await manager
-          .getRepository(Store)
-          .createQueryBuilder('store')
-          .where('store.id =  UUID_TO_BIN(:storeId)', { storeId })
-          .andWhere('store.account_id =  UUID_TO_BIN(:userId)', { userId })
+      const result = await this.storeRepository
+        .createQueryBuilder()
+        .delete()
+        .where('id = :storeId', { storeId })
+        .andWhere('accountId = :accountId', { accountId })
+        .execute();
+      
+      if (!result.affected) {
+        return notFound;
+      };
+      
+      return { 
+        success: true 
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async getBalance(accountId: string): Promise<SuccessDto<number>> {
+    try {
+      const result = await this.balanceRepository
+        .createQueryBuilder()
+        .where('accountId = :id', {id: accountId})
+        .getOne();
+
+      if(!result){
+        return errorMessage();
+      }
+
+      return{
+        success: true,
+        data: result.amount
+      }
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async getWithdrawals(accountId: string): Promise<SuccessDto<WithdrawalDto[]>>{
+    try {
+      const result = await this.withdrawalRepository
+        .createQueryBuilder()
+        .where('accountId = :id', { id: accountId })
+        .andWhere('status != :status', { status: EStateStatus.Pending })
+        .getMany();
+
+      const data = result.map((w) => new WithdrawalDto(w));
+      
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async withdraw(accountId: string, amount: number): Promise<SuccessDto<WithdrawalDto>> {
+    if(amount <= 0){
+      return badRequest;
+    };
+    try {
+      const result = await this.balanceRepository.manager.transaction(async (manager): Promise<Withdrawal | 'ERROR' | 'BAD_REQUEST'> => {
+        const balance = await manager.createQueryBuilder(Balance, 'b')
+          .setLock('pessimistic_write')
+          .where('b.accountId = :id', { id: accountId })
           .getOne();
 
-        if (!store) {
-          throw new Error('NOT_FOUND');
-        }
+        const account = await manager.createQueryBuilder(Account, 'a')
+          .leftJoinAndSelect('a.userProfile', 'u')
+          .leftJoinAndSelect('a.businessProfile', 'b')
+          .where('a.id = :id', { id: accountId })
+          .getOne();
+        
+        if(!balance || !account){
+          return 'ERROR';
+        };
 
-        await manager
-          .getRepository(Store)
-          .createQueryBuilder()
-          .delete()
-          .where('id =  UUID_TO_BIN(:storeId)', { storeId })
+        const cbu = account.businessProfile?.cbu ?? account.userProfile?.cbu;
+        if(!cbu){
+          return 'BAD_REQUEST';
+        };
+
+        await manager.createQueryBuilder(Balance, 'b')
+          .update(Balance)
+          .set({ status: EBalanceStatus.PROCESSING })
+          .where('b.accountId = :id', { id: accountId })
           .execute();
-      });
 
-      return { success: true, message: 'Tienda eliminada correctamente' };
-    } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err.message ?? 'Error al eliminar la tienda'
+        const withdrawal = manager.create(Withdrawal, {
+          accountId: accountId,
+          amount: amount,
+          cbu: cbu
+        });
+        
+        const newWithdrawal = await manager.save(Withdrawal, withdrawal);
+        let result: Withdrawal;
+        if(balance.amount < amount){
+          await manager.createQueryBuilder(Withdrawal, 'w')
+            .update(Withdrawal)
+            .set({ status: EStateStatus.Failed })  
+            .where('w.id = :id', { id: newWithdrawal.id})
+            .andWhere('w.accountId = :accountId', { accountId })
+            .execute();
+          newWithdrawal.status = EStateStatus.Failed;
+          result = newWithdrawal
+        }else{
+          balance.amount -= amount;
+          await manager.save(Balance, balance);
+          await manager.createQueryBuilder(Withdrawal, 'w')
+            .update(Withdrawal)
+            .set({ status: EStateStatus.Completed })  
+            .where('w.id = :id', { id: newWithdrawal.id})
+            .andWhere('w.accountId = :accountId', { accountId })
+            .execute();
+          newWithdrawal.status = EStateStatus.Completed;
+          result = newWithdrawal;
+        };
+        await manager.createQueryBuilder(Balance, 'b')
+          .update(Balance)
+          .set({ status: EBalanceStatus.IDLE })
+          .where('b.accountId = :id', { id: accountId })
+          .execute();
+        return result;
+      }); 
+
+      if(result === 'BAD_REQUEST') return badRequest;
+      
+      if(result === 'ERROR'){
+        console.error(`Error finding account: ${accountId} balance.`);
+        return errorMessage();
       };
+
+      return {
+        success: true,
+        data: new WithdrawalDto(result)
+      }
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+  //------------------ ADMIN FUNCTIONS -------------------------------
+  async getActiveList(adminId: string, offset?: number, limit?: number): Promise<SuccessDto<PartialAccountOutputDto[]>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data!.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const qb = this.partialAccount()
+      const accounts = await qb.where('s.slug = :slug', { slug: EAccountStatus.Active })
+        .andWhere('m.deleted IS NULL')
+        .orderBy('m.created', 'DESC')
+        .skip(offset ?? 0)
+        .take(limit ?? 30)
+        .getMany();
+      
+      const data = accounts.map((acc) => new PartialAccountOutputDto(acc));
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async deleteAccount(accountId: string, password: string): Promise<SuccessDto<void>> {
+  async getBannedList(adminId: string, offset?: number, limit?: number): Promise<SuccessDto<PartialAccountOutputDto[]>> {
     try {
-      const account = await this.getAccount(accountId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
+      const verify = await this.getPartialAccount(adminId);
 
-      const valid = await compare(password, account.data!.password);
-      if (!valid){
-        return { success: false, message: 'Credenciales inválidas', code: 400 };
-      }
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
 
-      await this.accountRepository
-      .createQueryBuilder()
-      .update(Meta)
-      .set({
-        deleted: new Date(),
-        deletedBy: accountId
-      })
-      .where('account_id =  UUID_TO_BIN(:id)', { id: accountId })
-      .execute();
+      if(getRoleGroup(verify.data!.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
 
-      return {success: true, message: 'Cuenta eliminada'};
-    } catch (err) {
-      return { success: false, code: 500, message: err.message ?? 'Error al eliminar la cuenta' };
+      const qb = this.partialAccount()
+      const accounts = await qb.where('s.slug = :slug', { slug: EAccountStatus.Banned })
+        .andWhere('m.deleted IS NOT NULL')
+        .orderBy('m.deleted', 'DESC')
+        .skip(offset ?? 0)
+        .take(limit ?? 30)
+        .getMany();
+
+      const data = accounts.map((acc) => new PartialAccountOutputDto(acc));
+      
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
     }
   }
 
-  async getBanned(adminId: string, limit?: number): Promise<SuccessDto<PartialAccountDto[]>> {
+  async getSuspendedList(adminId: string, offset?: number, limit?: number): Promise<SuccessDto<PartialAccountOutputDto[]>> {
     try {
-      const account = await this.getAccount(adminId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
-      if(account.data?.meta.role.slug !== 'admin'){
-        return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
-      }
-      const accounts = await this.accountRepository
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data!.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const qb = this.partialAccount()
+      const accounts = await qb.where('s.slug = :slug', { slug: EAccountStatus.Suspended })
+        .andWhere('m.deleted IS NOT NULL')
+        .orderBy('m.deleted', 'DESC')
+        .skip(offset ?? 0)
+        .take(limit ?? 30)
+        .getMany();
+
+      const data = accounts.map((acc) => new PartialAccountOutputDto(acc));
+      
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async getInactiveList(adminId: string, offset?: number, limit?: number): Promise<SuccessDto<PartialAccountOutputDto[]>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data!.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const qb = this.partialAccount()
+      const accounts = await qb.where('s.slug = :slug', { slug: EAccountStatus.Inactive })
+        .andWhere('m.deleted IS NOT NULL')
+        .orderBy('m.deleted', 'DESC')
+        .skip(offset ?? 0)
+        .take(limit ?? 30)
+        .getMany();
+
+      const data = accounts.map((acc) => new PartialAccountOutputDto(acc));
+      
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async search(adminId: string, contains: string): Promise<SuccessDto<PartialAccountOutputDto[]>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data?.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const normalized = contains.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
+      if(!normalized || normalized.length < 3){
+        return {
+          success: true,
+          data: []
+        };
+      };
+
+      const term = `%${normalized}%`;
+
+      const users = await this.accountRepository
         .createQueryBuilder('account')
         .leftJoinAndSelect('account.meta', 'meta')
         .leftJoinAndSelect('meta.status', 'status')
         .leftJoinAndSelect('meta.role', 'role')
-        .where('status.slug = :slug', { slug: 'banned' })
-        .orderBy('meta.deleted', 'DESC')
-        .limit(limit ?? 30)
+        .leftJoinAndSelect('account.adminProfile', 'admin')
+        .leftJoinAndSelect('account.userProfile', 'user')
+        .leftJoinAndSelect('account.businessProfile', 'business')
+        .where( new Brackets(qb => {
+          qb.where('account.username LIKE :term', { term })
+          .orWhere('account.email LIKE :term', { term })
+          .orWhere('admin.publicName LIKE :term', { term })
+          .orWhere('user.firstname LIKE :term', { term })
+          .orWhere('user.lastname LIKE :term', { term })
+          .orWhere('business.title LIKE :term', { term })
+          .orWhere('business.bio LIKE :term', { term })
+        }))
+        .orderBy('meta.created', 'DESC')
+        .take(50)
         .getMany();
 
+      const data = users.map((acc) => new PartialAccountOutputDto(acc));
       return {
         success: true,
-        data: accounts.map(acc => PartialAccountDto.fromEntity(acc)),
+        data 
       };
-
     } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err.message ?? 'Error al obtener cuentas baneadas',
-      };
+      return errorMessage(err);
     }
   }
 
-  async changeBannedStatus(adminId: string, userUsername: string): Promise<SuccessDto<void>> {
-    try {
-      const admin = await this.accountRepository.findOne({
-        where: { id: adminId },
-        relations: ['meta', 'meta.role']
-      });
-
-      if (!admin) {
-        return { success: false, message: 'El adminId no corresponde a ningún usuario.', code: 404 };
-      }
-
-      if (admin.meta.role.slug !== 'admin') {
-        return { success: false, message: 'No tenés permisos para realizar esta acción.', code: 401 };
-      }
-
-      const user = await this.accountRepository.findOne({
-        where: { username: userUsername },
-        relations: ['meta', 'meta.status']
-      });
-
-      if (!user) {
-        return { success: false, message: 'El usuario que querés banear no existe.', code: 400 };
-      }
-
-      if (user.meta.status.slug === 'banned') {
-        user.meta.deleted = null;
-        user.meta.deletedBy = null;
-
-        await this.accountRepository.manager.getRepository(Meta).save(user.meta);
-
-        return {
-        success: true,
-        message: `El usuario ${user.username} fue desbaneado correctamente.`
-      };
-      }else{
-        user.meta.deleted = new Date();
-        user.meta.deletedBy = adminId;
-
-        await this.accountRepository.manager.getRepository(Meta).save(user.meta);
-
-        return {
-        success: true,
-        message: `El usuario ${user.username} fue baneado correctamente.`
-      };
-      }
-    } catch (err) {
-      return {
-        success: false,
-        message: err.message ?? 'Error al banear usuario.',
-        code: 500
-      };
-    }
-  }
-
-  async userList(adminId: string, offset?: number, limit?: number): Promise<SuccessDto<PartialAccountDto[]>> {
-    try {
-      const account = await this.getAccount(adminId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
-      if(account.data?.meta.role.slug !== 'admin'){
-        return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
-      }
-      const users = await this.accountRepository
-      .createQueryBuilder('account')
-      .leftJoinAndSelect('account.meta', 'meta')
-      .leftJoinAndSelect('meta.status', 'status')
-      .leftJoinAndSelect('meta.role', 'role')
-      .where('status.slug != :slug', { slug: 'banned' })
-      .orderBy('account.createdAt', 'DESC')
-      .offset(offset ?? 0)
-      .limit(limit ?? 30)
-      .getMany();
-
-      return {
-        success: true,
-        data: users.map(acc => PartialAccountDto.fromEntity(acc)),
-      };
-
-    } catch (err: any) {
-      return {
-        success: false,
-        code: 500,
-        message: err.message ?? 'Error al obtener la lista de usuarios',
-      };
-    }
-  }
-
-  async search(adminId: string, contain: string): Promise<SuccessDto<PartialAccountDto[]>> {
-    try {
-      const account = await this.getAccount(adminId);
-      if(!account.success){
-        return {success: account.success, code: account.code, message: account.message};
-      }
-      if(account.data?.meta.role.slug !== 'admin'){
-        return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
-      }
-      const term = `%${contain}%`;
-
-      const users = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.status', 'status')
-        .leftJoinAndSelect('meta.role', 'role')
-        .where('account.username LIKE :term', { term })
-        .orWhere('account.email LIKE :term', { term })
-        .orWhere('admin.publicName LIKE :term', { term })
-        .orWhere('user.firstname LIKE :term', { term })
-        .orWhere('user.lastname LIKE :term', { term })
-        .orWhere('business.title LIKE :term', { term })
-        .orWhere('business.bio LIKE :term', { term })
-        .orderBy('account.createdAt', 'DESC')
-        .limit(50)
-        .getMany();
-
-      return {
-        success: true,
-        data: users.map(acc => PartialAccountDto.fromEntity(acc))
-      };
-
-    } catch (err: any) {
-      return {
-        success: false,
-        message: err.message ?? 'Error al realizar la busqueda.',
-        code: 500
-      };
-    }
-  }
-
-  async getAccountInfo(adminId: string, username: string): Promise<SuccessDto<AccountDto>> {
+  async getAccountInfo(password: string, username: string): Promise<SuccessDto<AccountOutputDto>> {
     try{
-      if(adminId !== String(process.env.INTERNAL_PASSWORD)){
-        const account = await this.getAccount(adminId);
-        if(!account.success){
-          return {success: account.success, code: account.code, message: account.message};
-        }
-        if(account.data?.meta.role.slug !== 'admin'){
-          return {success: false, code: 403, message: "Acceso denegado: se requiere rol de administrador."};
-        }
-      }
+      if(password !== this.config.get<string>('INTERNAL_ADMIN_PASSWORD')){
+        return unauthorized;
+      };
+
       const result = await this.accountRepository
-        .createQueryBuilder('account')
-        .select('account.id', 'id')
-        .where('account.username = :username', { username })
-        .getRawOne<{ id: string }>();
+        .createQueryBuilder('a')
+        .where('a.username = :username', { username })
+        .getOne();
 
       if (!result) {
-        return {success: false, message:'Usuario no encontrado' , code: 404};
-      }
+        return notFound;
+      };
 
       return this.getInfo(result.id);
-    }catch(err){
-      return {
-        success: false,
-        message: err.message ?? 'Error obteniendo los datos.',
-        code: 500
-      };
+    }catch(err: any){
+      return errorMessage(err);
     }
   }
 
-  async getAccountListInfo(accounts: string[]): Promise<SuccessDto<PartialAccountDto[]>> {
+  async addAdmin(password: string, dto: CreateAccountDto): Promise<SuccessDto<void>> {
     try {
-      if (!accounts.length) {
-        return { success: true, data: [] };
+      if(password !== this.config.get<string>('INTERNAL_ADMIN_PASSWORD')){
+        return unauthorized;
+      };
+
+      if(!dto.adminAccount) return badRequest;
+      
+      await this.accountRepository.manager.transaction(async manager => {
+        const hashed = await this.hashPassword(dto.password);
+        
+        const account = await manager.save(Account, {
+          username: dto.username,
+          email: dto.email,
+          password: hashed
+        });
+
+        await manager.save(MetaA,{
+          accountId: account.id
+        });
+
+        await manager.save(AdminProfile, {
+          accountId: account.id,
+          publicName: dto.adminAccount.publicName
+        });
+      });
+
+      return {
+        success: true
+      }
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async banAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data?.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const user = await this.accountRepository
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.meta', 'm')
+      .leftJoinAndSelect('m.status', 's')
+      .where('a.email = :input', { input: mail })
+      .getOne();
+
+      if (!user) {
+        return badRequest;
       }
 
-      const ids = accounts.map(id => uuidTransformer.to(id));
+      if (user.meta.status.slug !== EAccountStatus.Banned) {
+        const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Banned }});
+        if(!newStatus){
+          throw new Error('Error finding the banned id on the Data Base');
+        }
 
-      const users = await this.accountRepository
-        .createQueryBuilder('account')
-        .leftJoinAndSelect('account.meta', 'meta')
-        .leftJoinAndSelect('meta.status', 'status')
-        .leftJoinAndSelect('meta.role', 'role')
-        .where('account.id IN (:...ids)', { ids })
+        await this.metaRepository
+          .createQueryBuilder()
+          .update(MetaA)
+          .set({ deletedBy: adminId, deleted: new Date(), statusId: newStatus.id })
+          .where('accountId = :id', { id: user.id })
+          .execute();
+
+        return {
+          success: true
+        };
+      }else{
+        return badRequest;
+      }      
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async restoreAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data?.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const user = await this.accountRepository
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.meta', 'm')
+      .leftJoinAndSelect('m.status', 's')
+      .where('a.email = :input', { input: mail })
+      .getOne();
+
+      if (!user) {
+        return badRequest;
+      }
+
+      if (user.meta.status.slug !== EAccountStatus.Active) {
+        const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Active }});
+        if(!newStatus){
+          throw new Error('Error finding the active id on the Data Base');
+        }
+
+        await this.metaRepository
+          .createQueryBuilder()
+          .update(MetaA)
+          .set({ deletedBy: null, deleted: null, statusId: newStatus.id })
+          .where('accountId = :id', { id: user.id })
+          .execute();
+
+        return { 
+          success: true
+        };
+      }else{
+        return badRequest;
+      }      
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }  
+
+  async suspendAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+    try {
+      const verify = await this.getPartialAccount(adminId);
+
+      if(!verify.success){
+        return {
+          success: verify.success, 
+          code: verify.code, 
+          message: verify.message
+        };
+      };
+
+      if(getRoleGroup(verify.data?.meta.role.slug) !== ERole.Admin){
+        return unauthorized;
+      };
+
+      const user = await this.accountRepository
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.meta', 'm')
+      .leftJoinAndSelect('m.status', 's')
+      .where('a.email = :input', { input: mail })
+      .getOne();
+
+      if (!user) {
+        return badRequest;
+      }
+
+      if ((user.meta.status.slug !== EAccountStatus.Suspended) && (user.meta.status.slug !== EAccountStatus.Banned)) {
+        const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Suspended }});
+        if(!newStatus){
+          throw new Error('Error finding the suspended id on the Data Base');
+        }
+
+        await this.metaRepository
+          .createQueryBuilder()
+          .update(MetaA)
+          .set({ deletedBy: adminId, deleted: new Date(), statusId: newStatus.id })
+          .where('accountId = :id', { id: user.id })
+          .execute();
+
+        return {
+          success: true
+        };
+      }else{
+        return badRequest;
+      }      
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }  
+
+  //------------------ EVENT FUNCTIONS -------------------------------
+  async getAccountListInfo(accountIds: string[]): Promise<SuccessDto<AccountDto[]>> {
+    try {
+      if (!accountIds.length) {
+        return { 
+          success: true, 
+          data: [] 
+        };
+      }
+
+      const qb = this.completeAccount();
+      const account = await qb.where('account.id IN (:...ids)', { ids: accountIds })
         .getMany();
 
+      const data = account.map((acc) => new AccountDto(acc));
+      
       return {
         success: true,
-        data: users.map(acc => PartialAccountDto.fromEntity(acc)),
+        data
       };
-    } catch (err) {
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async getPartialAccountListInfo(accountIds: string[]): Promise<SuccessDto<PartialAccountDto[]>> {
+    try {
+      if (!accountIds.length) {
+        return { 
+          success: true, 
+          data: [] 
+        };
+      };
+
+      const qb = this.partialAccount();
+      const account = await qb.where('a.id IN (:...ids)', { ids: accountIds })
+        .getMany();
+
+      const data = account.map((acc) => new PartialAccountDto(acc));
+      
       return {
-        success: false,
-        message: err.message ?? 'Error obteniendo los datos.',
-        code: 500,
+        success: true,
+        data
       };
+    } catch (err: any) {
+      return errorMessage(err);
+    }
+  }
+
+  async addToBalance(accounts: {accountId: string, balance: number}[]): Promise<void> {
+    const failures: { id: string; amount: number; error: any }[] = [];
+
+    for (const a of accounts) {
+      try {
+        await this.balanceRepository.increment(
+          { accountId: a.accountId },
+          'amount',
+          a.balance
+        );
+      } catch (err: any) {
+        failures.push({ id: a.accountId, amount: a.balance, error: err?.message ?? err });
+      }
+    }
+
+    if (failures.length) {
+      console.error(`addToBalance failed for ${failures.length} accounts:`, failures);
     }
   }
 }

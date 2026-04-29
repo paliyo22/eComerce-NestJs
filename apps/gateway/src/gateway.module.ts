@@ -1,54 +1,33 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ConfigModule } from '@nestjs/config';
-import { CartController } from './cart/cart.controller';
-import { CartService } from './cart/cart.service';
-import { OrderController } from './order/order.controller';
-import { OrderService } from './order/order.service';
-import { ProductController } from './product/product.controller';
-import { ProductService } from './product/product.service';
-import { AccountController } from './account/account.controller';
-import { AccountService } from './account/account.service';
-import { AuthController } from './auth/auth.controller';
-import { AuthService } from './auth/auth.service';
+import { PassportModule } from '@nestjs/passport';
+import { gatewaySchema } from '@app/lib';
+import { AccountModule } from './account/account.module';
+import { AddressModule } from './address/address.module';
+import { AdminModule } from './admin/admin.module';
+import { AuthModule } from './auth/auth.module';
+import { BalanceModule } from './balance/balance.module';
+import { CartModule } from './cart/cart.module';
+import { CheckoutModule } from './checkout/checkout.module';
+import { JwtStrategy } from './helpers/jwt.strategy';
+import { RefreshTokenStrategy } from './helpers/jwtRefresh.strategy';
+import { OrderModule } from './order/order.module';
+import { ProductModule } from './product/product.module';
+import { ReviewModule } from './review/review.module';
+import { StoreModule } from './store/store.module';
 
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env'
+      validationSchema: gatewaySchema
     }),
-    ClientsModule.register([
-      {
-        name: 'PRODUCT_SERVICE',
-        transport: Transport.TCP,
-        options: { port: 3001 }
-      },
-      {
-        name: 'ACCOUNT_SERVICE',
-        transport: Transport.TCP,
-        options: { port: 3002 }
-      },
-      {
-        name: 'CART_SERVICE',
-        transport: Transport.TCP,
-        options: { port: 3003 }
-      },
-      {
-        name: 'ORDER_SERVICE',
-        transport: Transport.TCP,
-        options: { port: 3004 }
-      }
-    ])
+    PassportModule, AccountModule, AddressModule,
+    AdminModule, AuthModule, CartModule, 
+    CheckoutModule, OrderModule, ProductModule, 
+    ReviewModule, StoreModule, BalanceModule
   ],
-  controllers: [
-    ProductController, AccountController,
-    CartController, OrderController, AuthController
-  ],
-  providers: [
-    ProductService, AccountService,
-    CartService, OrderService, AuthService
-  ],
+  providers: [JwtStrategy, RefreshTokenStrategy]
 })
 export class GatewayModule {}
