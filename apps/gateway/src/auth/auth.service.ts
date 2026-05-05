@@ -48,18 +48,15 @@ export class AuthService {
         return { partialAccount, jwtAccess };
 
         } catch (err) {
-            throw errorManager(err, 'auth');
+            throw errorManager(err, AuthService.name);
         }
     }
 
     async logOut(accountId: string, device: string): Promise<void> {
         try {
-        await firstValueFrom(
-            this.accountClient.emit('log.out', { accountId, device }
-            ).pipe(withRetry())
-        );
+            this.accountClient.emit('log.out', { accountId, device });
         } catch (err) {
-            errorManager(err, 'auth');
+            errorManager(err, AuthService.name);
         }
     }
 
@@ -83,7 +80,7 @@ export class AuthService {
         return { partialAccount: result.data!, jwtAccess, jwtRefresh: result.data!.refreshToken! };
 
         } catch (err) {
-            throw errorManager(err, 'auth');
+            throw errorManager(err, AuthService.name);
         }
     }
 }

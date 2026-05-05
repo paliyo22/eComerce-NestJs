@@ -3,6 +3,7 @@ import { Address } from "./addressEntity";
 import { AdminProfile } from "./adminEntity";
 import { Balance } from "./balanceEntity";
 import { BusinessProfile } from "./businessEntity";
+import { Increment } from "./incrementEntity";
 import { MetaA } from "./metaAEntity";
 import { RefreshToken } from "./refreshTokenEntity";
 import { Role } from "./roleEntity";
@@ -23,5 +24,6 @@ export const accountEntities = [
     Store,
     UserProfile,
     Balance,
-    Withdrawal
+    Withdrawal,
+    Increment
 ]

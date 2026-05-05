@@ -3,7 +3,7 @@ import { ProductService } from './product.service';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { CreateReviewDto, SuccessDto, CreateProductDto, PartialProductDto, 
   UpdateProductDto, EProductCategory, ProductOrderDto, UnavailableProductsDto, 
-  ProductDto, AccountReviewDto, ProductReviewDto } from '@app/lib';
+  ProductDto, AccountReviewDto, ProductReviewDto, TransactionDto } from '@app/lib';
 
 @Controller()
 export class ProductController {
@@ -129,9 +129,10 @@ export class ProductController {
     return this.productService.getProductsFromList(data.productIds);
   }
 
-  @MessagePattern({ cmd: 'delete_account_data' })
-  async deleteAccountData(@Payload() data: { accountId: string }): Promise<SuccessDto<void>> {
-    return this.productService.deleteAccountData(data.accountId);
+  // se invoca en: Account/[deleted, banned, suspended]
+  @EventPattern({ cmd: 'delete.account.data' })
+  async deleteAccountData(@Payload() data: { accountId: string }): Promise<void> {
+    this.productService.deleteAccountData(data.accountId);
   }
 
   // se invoca en: Cart/makeReserve / Order/createDraftOrder
@@ -142,8 +143,16 @@ export class ProductController {
 
   // se invoca en Order/restoreStock
   @MessagePattern({ cmd: 'restore_stock' })
-  async restoreStock(@Payload() data: { products: {productId: string, amount: number}[] }): Promise<void> {
-    return this.productService.restoreStock(data.products);
+  async restoreStock(@Payload() data: { products: {productId: string, amount: number}[], token: TransactionDto }): Promise<void> {
+    if(data.token){
+      const result = await this.productService.check(data.token);
+      if(result === 'failed')
+        return;
+
+      if(result === 'completed')
+        return;
+    };
+    return this.productService.restoreStock(data.products, data.token);
   }
 
   // se invoca en: Cart/addToCart

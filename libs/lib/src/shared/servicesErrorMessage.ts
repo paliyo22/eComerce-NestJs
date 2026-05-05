@@ -1,8 +1,11 @@
+import { Logger } from "@nestjs/common";
 import { SuccessDto } from "./succesDto";
 
-export function errorMessage(err?: any): SuccessDto<any> {
+const globalLogger = new Logger('GlobalErrorHelper');
+
+export function errorMessage(msName: string, err?: any): SuccessDto<any> {
   if(err){
-    console.error(err.message ?? err);
+    globalLogger.error(`[${msName}] ${err.message ?? err}`, err.stack);
   };
 
   return {

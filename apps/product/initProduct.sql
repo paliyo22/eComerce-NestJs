@@ -8,7 +8,8 @@ USE product_db;
 
 create table category(
 	id tinyint unsigned auto_increment primary key,
-    slug varchar(50) not null unique
+    slug varchar(50) not null unique,
+    index idx_slug (slug)
 );
 
 create table product (

@@ -26,7 +26,7 @@ export class AddressService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'address');
+            throw errorManager(err, AddressService.name);
         }   
     }
 
@@ -45,7 +45,7 @@ export class AddressService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'address');
+            throw errorManager(err, AddressService.name);
         }   
     }
 
@@ -62,7 +62,7 @@ export class AddressService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err) {
-            throw errorManager(err, 'address');
+            throw errorManager(err, AddressService.name);
         }   
     }
 }

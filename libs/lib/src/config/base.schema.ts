@@ -10,5 +10,7 @@ export const baseSchema = Joi.object({
     PAYMENT_TIME: Joi.number().default(1800000),
     INTERNAL_ADMIN_PASSWORD: Joi.string().required(),
     REDIS_HOST: Joi.string().default("redis"),
-    REDIS_PORT: Joi.number().default(6379)
+    REDIS_PORT: Joi.number().default(6379),
+    RABBITMQ_URL: Joi.string().default("amqp://rabbitmq:5672"),
+    MESSAGE_TIMEOUT: Joi.number().default(300000)
 });

@@ -1,14 +1,15 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
 import { AccountService } from './account.service';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { SuccessDto, PartialAccountDto, AddressDto, CreateAddressDto, 
   CreateStoreDto, StoreDto, AccountDto, AccountOutputDto, PartialAccountOutputDto, 
-  CreateAccountDto, UpdateAccountDto, 
-  WithdrawalDto} from '@app/lib';
+  CreateAccountDto, UpdateAccountDto, WithdrawalDto, TransactionDto } from '@app/lib';
 
 @Controller()
 export class AccountController {
-  constructor(private readonly accountService: AccountService) {}
+  constructor(
+    private readonly accountService: AccountService
+  ) {}
   
   @MessagePattern({ cmd: 'log_in' })
   async logIn(@Payload() data: { account: string, password: string, ip: string, device: string}): Promise<SuccessDto<PartialAccountDto>> {
@@ -98,8 +99,14 @@ export class AccountController {
   }
 
   @MessagePattern({ cmd: 'withdraw' })
-  async withdraw(@Payload() data: { accountId: string, amount: number }): Promise<SuccessDto<WithdrawalDto>> {
-    return this.accountService.withdraw(data.accountId, data.amount);
+  async withdraw(@Payload() data: { accountId: string, amount: number, token: TransactionDto }): Promise<SuccessDto<WithdrawalDto>> {
+    const result = await this.accountService.check(data.token);
+    if(result === 'failed')
+      return { success: false, message: 'INTERNAL_ERROR', code: 500 };
+
+    if(result === 'completed')
+      return { success: true };
+    return this.accountService.withdraw(data.accountId, data.amount, data.token);
   }
 
   //------------------ ADMIN FUNCTIONS -------------------------------
@@ -168,7 +175,15 @@ export class AccountController {
 
   // se invoca en: Order/setOrder
   @MessagePattern({ cmd: 'add_to_account_balance' })
-  async addToBalance(@Payload() data:{ accounts: {accountId: string, balance: number}[] }): Promise<void>{
-    return this.accountService.addToBalance(data.accounts);
+  async addToBalance(@Payload() data:{ accounts: {accountId: string, balance: number}[], token: TransactionDto }): Promise<void>{
+    if(data.token){
+      const result = await this.accountService.check(data.token);
+      if(result === 'failed')
+        return;
+
+      if(result === 'completed')
+        return;
+    };
+    return this.accountService.addToBalance(data.accounts, data.token);
   }
 }

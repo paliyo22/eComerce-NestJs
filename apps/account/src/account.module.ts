@@ -4,6 +4,8 @@ import { AccountService } from './account.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { accountEntities, dbSchema } from '@app/lib';
+import { RedisModule } from '@app/redis';
+import { RabbitProxyModule } from '@app/rabit-proxy';
 
 @Module({
   imports: [
@@ -27,7 +29,7 @@ import { accountEntities, dbSchema } from '@app/lib';
               database: config.get<string>('ACCOUNT_DB_NAME')
             }
           ),
-          synchronize: !isProduction,
+          synchronize: config.get<string>('NODE_ENV') === 'production',
           poolSize: 10,
           timezone: 'Z',
           entities: accountEntities,
@@ -36,7 +38,11 @@ import { accountEntities, dbSchema } from '@app/lib';
         }
       }
     }),
-    TypeOrmModule.forFeature(accountEntities)
+    RedisModule,
+    TypeOrmModule.forFeature(accountEntities),
+    RabbitProxyModule.register([
+      'PRODUCT_SERVICE'
+    ])
   ],
   controllers: [AccountController],
   providers: [AccountService]

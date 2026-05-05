@@ -27,7 +27,7 @@ export class ReviewService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'reviews');
+            throw errorManager(err, ReviewService.name);
         }
     };  
 
@@ -48,7 +48,7 @@ export class ReviewService {
                 return result.data;
             };
         } catch (err) {
-            throw errorManager(err, 'reviews');
+            throw errorManager(err, ReviewService.name);
         }
     }
 
@@ -65,7 +65,7 @@ export class ReviewService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err) {
-            throw errorManager(err, 'reviews');
+            throw errorManager(err, ReviewService.name);
         }
     }
 }

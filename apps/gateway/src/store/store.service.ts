@@ -29,7 +29,7 @@ export class StoreService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'store');
+            throw errorManager(err, StoreService.name);
         }   
     }
 
@@ -48,7 +48,7 @@ export class StoreService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'store');
+            throw errorManager(err, StoreService.name);
         }   
     }
 
@@ -65,7 +65,7 @@ export class StoreService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err) {
-            throw errorManager(err, 'store');
+            throw errorManager(err, StoreService.name);
         }   
     }
 }

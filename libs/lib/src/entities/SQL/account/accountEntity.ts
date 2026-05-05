@@ -1,5 +1,5 @@
 import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator";
-import { Entity, Column, OneToMany, OneToOne, BeforeInsert } from "typeorm";
+import { Entity, Column, OneToMany, OneToOne, BeforeInsert, Index } from "typeorm";
 import { v4 as uuid } from 'uuid';
 import { MetaA } from "./metaAEntity";
 import { Address } from "./addressEntity";
@@ -10,8 +10,11 @@ import { RefreshToken } from "./refreshTokenEntity";
 import { Store } from "./storeEntity";
 import { UserProfile } from "./userEntity";
 import { Withdrawal } from "./withdrawalEntity";
+import { Increment } from "./incrementEntity";
 
 @Entity('account')
+@Index('idx_email', ['email'])
+@Index('idx_username', ['username'])
 export class Account {
   constructor(){};
   
@@ -59,4 +62,7 @@ export class Account {
 
   @OneToMany(() => Withdrawal, (w) => w.account)
   withdrawal?: Withdrawal[];
+
+  @OneToMany(() => Increment, (i) => i.account)
+  increment?: Increment[];
 }

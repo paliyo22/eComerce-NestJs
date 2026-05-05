@@ -1,8 +1,8 @@
 import { Controller } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
-import { SuccessDto, AddProductToCartDto, CartOutputDto, ProductOrderDto, UnavailableProductsDto } from '@app/lib';
-
+import { SuccessDto, AddProductToCartDto, CartOutputDto, ProductOrderDto, 
+  UnavailableProductsDto, OrderItem } from '@app/lib';
 
 @Controller()
 export class CartController {
@@ -47,4 +47,9 @@ export class CartController {
   async deleteProductsFromCarts(@Payload() data: { productIds: string[]}): Promise<void>{
     this.cartService.deleteProductsFromCarts(data.productIds);
   }
+
+  @MessagePattern('delete_products_from_cart')
+  async deleteProductsFromCart(@Payload() data: { accountId: string, items: OrderItem[] }): Promise<void>{
+    return this.cartService.deleteProductsFromCart(data.accountId, data.items);
+  }  
 }

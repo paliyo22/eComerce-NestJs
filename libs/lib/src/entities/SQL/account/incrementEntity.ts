@@ -1,12 +1,11 @@
-import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
-import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator";
+import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne } from "typeorm";
 import { Account } from "./accountEntity";
-import { EStateStatus } from "../../../enums/EStateStatus";
+import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator";
 
-@Entity('withdrawal')
+@Entity('increment')
 @Check('amount > 0')
 @Index('idx_account', ['accountId'])
-export class Withdrawal {
+export class Increment {
     constructor(){};
     
     @PrimaryBinaryUuidColumn()
@@ -21,12 +20,6 @@ export class Withdrawal {
 
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number;
-
-    @Column({ type: 'varchar', length: 22 })
-    cbu: string;
-
-    @Column({ type: 'enum', enum: EStateStatus, default: EStateStatus.Pending })
-    status: EStateStatus;
 
     @CreateDateColumn({ type: 'datetime' })
     created: Date;

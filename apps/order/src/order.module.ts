@@ -4,8 +4,8 @@ import { OrderService } from './order.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { dbSchema, orderEntities } from '@app/lib';
-import { ClientsModule, Transport } from '@nestjs/microservices';
 import { RedisModule } from '@app/redis';
+import { RabbitProxyModule } from '@app/rabit-proxy';
 
 @Module({
   imports: [
@@ -29,7 +29,7 @@ import { RedisModule } from '@app/redis';
               database: config.get<string>('ORDER_DB_NAME')
             }
           ),
-          synchronize: !isProduction,
+          synchronize: config.get<string>('NODE_ENV') === 'production',
           poolSize: 10,
           timezone: 'Z',
           entities: orderEntities,
@@ -40,40 +40,8 @@ import { RedisModule } from '@app/redis';
     }),
     RedisModule,
     TypeOrmModule.forFeature(orderEntities),
-    ClientsModule.register([
-      {
-        name: 'PRODUCT_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: ['amqp://rabbitmq:5672'],
-          queue: 'product_queue',
-          queueOptions: {
-            durable: false
-          }
-        }
-      },
-      {
-        name: 'ACCOUNT_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: ['amqp://rabbitmq:5672'],
-          queue: 'account_queue',
-          queueOptions: {
-            durable: false
-          }
-        }
-      },
-      {
-        name: 'CART_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: ['amqp://rabbitmq:5672'],
-          queue: 'cart_queue',
-          queueOptions: {
-            durable: false
-          }
-        }
-      }
+    RabbitProxyModule.register([
+      'PRODUCT_SERVICE', 'ACCOUNT_SERVICE', 'CART_SERVICE'
     ])
   ],
   controllers: [OrderController],

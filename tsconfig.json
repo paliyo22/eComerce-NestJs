@@ -27,6 +27,12 @@
       "@app/lib/*": [
         "./libs/lib/src/*"
       ],
+      "@app/rabit-proxy": [
+        "./libs/rabit-proxy/src/index"
+      ],
+      "@app/rabit-proxy/*": [
+        "./libs/rabit-proxy/src/*"
+      ],
       "@app/redis": [
         "./libs/redis/src/index"
       ],

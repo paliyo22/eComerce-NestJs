@@ -26,7 +26,7 @@ export class CartService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'cart');
+            throw errorManager(err, CartService.name);
         }
     }
 
@@ -43,7 +43,7 @@ export class CartService {
                 throw new HttpException(result.message!, result.code!);
             }
         } catch (err: any) {
-            throw errorManager(err, 'cart');
+            throw errorManager(err, CartService.name);
         }
     }
 
@@ -60,7 +60,7 @@ export class CartService {
                 throw new HttpException(result.message!, result.code!);
             }
         } catch (err: any) {
-            throw errorManager(err, 'cart');
+            throw errorManager(err, CartService.name);
         }
     }
 
@@ -77,7 +77,7 @@ export class CartService {
                 throw new HttpException(result.message!, result.code!);
             }
         } catch (err: any) {
-            throw errorManager(err, 'cart');
+            throw errorManager(err, CartService.name);
         }
     }
 
@@ -94,7 +94,7 @@ export class CartService {
                 throw new HttpException(result.message!, result.code!);
             }
         } catch (err: any) {
-            throw errorManager(err, 'cart');
+            throw errorManager(err, CartService.name);
         }
     }
 }

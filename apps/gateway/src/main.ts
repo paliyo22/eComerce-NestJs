@@ -26,7 +26,8 @@ async function bootstrap() {
       allowedHeaders: 'Content-Type, Authorization',
       methods: 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     });
-  }
+  };
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
   await app.listen(config.get<number>('PORT'));
 }
 bootstrap();

@@ -25,7 +25,7 @@ export class OrderService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'order');
+            throw errorManager(err, OrderService.name);
         }
     }
     
@@ -43,7 +43,7 @@ export class OrderService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'order');
+            throw errorManager(err, OrderService.name);
         }
     }
 
@@ -61,7 +61,7 @@ export class OrderService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'order');
+            throw errorManager(err, OrderService.name);
         }
     }
 
@@ -79,7 +79,7 @@ export class OrderService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'order');
+            throw errorManager(err, OrderService.name);
         }
     }
 
@@ -97,7 +97,7 @@ export class OrderService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'order');
+            throw errorManager(err, OrderService.name);
         }
     }
 }

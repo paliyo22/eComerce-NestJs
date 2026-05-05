@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { dbSchema, productEntities } from '@app/lib';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RedisModule } from '@app/redis';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { RabbitProxyModule } from '@app/rabit-proxy';
 
 @Module({
   imports: [
@@ -29,7 +29,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
               database: config.get<string>('PRODUCT_DB_NAME')
             }
           ),
-          synchronize: !isProduction,
+          synchronize: config.get<string>('NODE_ENV') === 'production',
           poolSize: 10,
           timezone: 'Z',
           entities: productEntities,
@@ -40,29 +40,8 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
     }),
     RedisModule,
     TypeOrmModule.forFeature(productEntities),
-    ClientsModule.register([
-      {
-        name: 'ACCOUNT_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: ['amqp://rabbitmq:5672'],
-          queue: 'account_queue',
-          queueOptions: {
-            durable: false
-          }
-        }
-      },
-      {
-        name: 'CART_SERVICE',
-        transport: Transport.RMQ,
-        options: {
-          urls: ['amqp://rabbitmq:5672'],
-          queue: 'cart_queue',
-          queueOptions: {
-            durable: false
-          }
-        }
-      }
+    RabbitProxyModule.register([
+      'ACCOUNT_SERVICE', 'CART_SERVICE'
     ])
   ],
   controllers: [ProductController],

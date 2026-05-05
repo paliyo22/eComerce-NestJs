@@ -1,11 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { SuccessDto, Cart, AddProductToCartDto, CartProduct, 
   CartOutputDto, PartialProductDto, ProductOrderDto, withRetry, 
   UnavailableProductsDto, errorMessage, notAvailable, badRequest, 
-  notFound, unauthorized } from '@app/lib';
+  notFound, unauthorized, 
+  OrderItem} from '@app/lib';
 import { firstValueFrom } from 'rxjs';
 import Redis from 'ioredis';
 
@@ -21,6 +22,8 @@ export class CartService {
     @Inject('REDIS_CLIENT')
     private redis: Redis
   ){}
+  
+  private readonly logger = new Logger(CartService.name);
 
   private async myCart(accountId: string): Promise<Cart> {
     let cart = await this.cartRepo
@@ -40,7 +43,7 @@ export class CartService {
   async getCart(accountId: string, cartId?: string): Promise<SuccessDto<CartOutputDto>> {
     try {
       const cacheKey = `cart:${accountId}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -89,14 +92,14 @@ export class CartService {
       }
 
       const data = new CartOutputDto(cart, products.data!);
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
       
       return {
         success: true,
         data
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }  
   }
 
@@ -142,13 +145,13 @@ export class CartService {
         });
       }
 
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
       return {
         success: true
       };
 
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }
   }
 
@@ -181,12 +184,12 @@ export class CartService {
         return notFound;
       }
 
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
       return { 
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }
   }
 
@@ -203,12 +206,12 @@ export class CartService {
         return badRequest;
       };
 
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
       return { 
         success: true 
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }
   }
 
@@ -250,7 +253,7 @@ export class CartService {
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }
   }
 
@@ -289,7 +292,7 @@ export class CartService {
         this.productClient.send<SuccessDto<ProductOrderDto[] | UnavailableProductsDto[]>>(
           { cmd: 'reserve' },
           { products }
-        ).pipe(withRetry())
+        )
       );
 
       if(!result.success){
@@ -305,7 +308,7 @@ export class CartService {
         data: result.data
       }
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(CartService.name, err);
     }
   }
 
@@ -317,7 +320,28 @@ export class CartService {
         .where('c.productId IN (:...ids)', { ids: productIds })
         .execute();    
     } catch (err: any) {
-      console.error('Fallo el metodo "deleteProductsFromCarts" del MS: Cart');
+      this.logger.warn('Fallo el metodo "deleteProductsFromCarts" del MS: Cart');
+    }
+  }
+
+  async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
+    try {
+      const products = items.map((i) => i.productId);
+      const cartSubQuery = this.cartRepo
+        .createQueryBuilder('c')
+        .select('c.id')
+        .where('c.accountId = :accountId', { accountId });
+
+      const result = await this.cartProductRepo
+        .createQueryBuilder('cp')
+        .delete()
+        .where('cp.productId IN (:...productIds)', { productIds: products })
+        .andWhere(`cp.cartId IN (${cartSubQuery.getQuery()})`)
+        .setParameters(cartSubQuery.getParameters())
+        .execute();
+
+    } catch (err: any) {
+      this.logger.log('The function "deleteProductsFromCarts" failed');
     }
   }
 }

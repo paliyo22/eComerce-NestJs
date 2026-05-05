@@ -1,14 +1,14 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Inject } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { SuccessDto, OrderDto, DraftOrderOutputDto, CreateDraftOrderDto, 
   EStateStatus, DraftOrder, PartialOrderDto, SaleDto, UnavailableProductsDto,
-  MoneyVariations } from '@app/lib';
+  MoneyVariations, TransactionDto } from '@app/lib';
 
 @Controller()
 export class OrderController {
   constructor(
-    private readonly orderService: OrderService
+    private readonly orderService: OrderService,
   ) {}
 
   // --------------------------- CHECKOUT --------------------------------
@@ -28,13 +28,27 @@ export class OrderController {
   }
 
   @MessagePattern({ cmd: 'cancel_draft_order' })
-  async cancelDraftOrder(@Payload() data: { draftOrderId: string, accountId?: string }): Promise<SuccessDto<void>> {
-    return this.orderService.cancelDraftOrder(data.draftOrderId, data.accountId);
+  async cancelDraftOrder(@Payload() data: { draftOrderId: string, token: TransactionDto, accountId?: string }): Promise<SuccessDto<void>> {
+    const result = await this.orderService.check(data.token);
+    if(result === 'failed')
+      return { success: false, message: 'INTERNAL_ERROR', code: 500 };
+
+    if(result === 'completed')
+      return { success: true };
+    return this.orderService.cancelDraftOrder(data.draftOrderId, data.token, data.accountId);
   }
 
   @MessagePattern({ cmd: 'create_order' })
-  async setOrder(@Payload() data: { draftOrderId: string, accountId?: string }): Promise<SuccessDto<void>> {
-    return this.orderService.setOrder(data.draftOrderId, data.accountId);
+  async setOrder(@Payload() data: { draftOrderId: string, token: TransactionDto, accountId?: string }): Promise<SuccessDto<void>> {
+    if(data.token){
+      const result = await this.orderService.check(data.token);
+      if(result === 'failed')
+        return { success: false, message: 'INTERNAL_ERROR', code: 500 };
+
+      if(result === 'completed')
+        return { success: true };
+    };
+    return this.orderService.setOrder(data.draftOrderId, data.token, data.accountId);
   }
 
   // -------------------------- ORDER ------------------------

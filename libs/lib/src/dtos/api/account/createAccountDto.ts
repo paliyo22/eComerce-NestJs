@@ -1,6 +1,6 @@
 import { ExactlyOne } from "../../../shared/exactlyOne.decorator";
 import { Type } from "class-transformer";
-import { IsDate, IsEmail, IsNotEmpty, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsDate, IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
 
 class AdminAccount{
     @IsString()
@@ -33,7 +33,7 @@ class UserAccount{
 
     @IsOptional()
     @IsDate()
-    birth?: string;
+    birth?: Date;
 
     @IsOptional()
     @IsString()
@@ -46,10 +46,13 @@ export class CreateAccountDto {
     constructor(){}
     
     @IsEmail()
+    @MaxLength(100)
     @IsNotEmpty()
     email: string;
 
     @IsString()
+    @MinLength(3)
+    @MaxLength(50)
     @IsNotEmpty()
     username: string;
 

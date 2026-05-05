@@ -29,7 +29,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -48,7 +48,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -67,7 +67,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -86,7 +86,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -105,7 +105,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -124,7 +124,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -141,7 +141,7 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             }
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }
     }
 
@@ -158,7 +158,7 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -175,7 +175,7 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
 
@@ -192,18 +192,15 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }   
     }
     //---------------------- PRODUCT SERVICE -----------------------
     async calculateRating(): Promise<void> {
         try {
-            await firstValueFrom(
-                this.productClient.emit('calculate.rating', {})
-                    .pipe(withRetry())
-            );
+            this.productClient.emit('calculate.rating', {})
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }
     }
 
@@ -220,7 +217,7 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }
     }
 
@@ -237,7 +234,7 @@ export class AdminService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }
     }
 
@@ -256,7 +253,7 @@ export class AdminService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'admin');
+            throw errorManager(err, AdminService.name);
         }
     }
 }

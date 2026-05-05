@@ -29,7 +29,7 @@ export class ProductService {
 
             return result.data!
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -48,7 +48,7 @@ export class ProductService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };
     
@@ -67,7 +67,7 @@ export class ProductService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };
 
@@ -86,7 +86,7 @@ export class ProductService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };
 
@@ -105,7 +105,7 @@ export class ProductService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -124,7 +124,7 @@ export class ProductService {
             
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -143,7 +143,7 @@ export class ProductService {
             
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -179,7 +179,7 @@ export class ProductService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -196,7 +196,7 @@ export class ProductService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -213,7 +213,7 @@ export class ProductService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     }
 
@@ -249,7 +249,7 @@ export class ProductService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };
 
@@ -266,7 +266,7 @@ export class ProductService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };
 
@@ -285,7 +285,7 @@ export class ProductService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'products');
+            throw errorManager(err, ProductService.name);
         }
     };        
 }

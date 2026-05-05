@@ -15,7 +15,9 @@ import { OrderModule } from './order/order.module';
 import { ProductModule } from './product/product.module';
 import { ReviewModule } from './review/review.module';
 import { StoreModule } from './store/store.module';
-
+import { RabbitProxyModule } from '@app/rabit-proxy';
+import { GeneralModule } from './general/general.module';
+import { RedisModule } from '@app/redis';
 
 @Module({
   imports: [
@@ -24,9 +26,13 @@ import { StoreModule } from './store/store.module';
       validationSchema: gatewaySchema
     }),
     PassportModule, AccountModule, AddressModule,
-    AdminModule, AuthModule, CartModule, 
+    AdminModule, AuthModule, CartModule, GeneralModule,
     CheckoutModule, OrderModule, ProductModule, 
-    ReviewModule, StoreModule, BalanceModule
+    ReviewModule, StoreModule, BalanceModule, RedisModule,
+    RabbitProxyModule.register([
+      'ACCOUNT_SERVICE', 'PRODUCT_SERVICE',
+      'CART_SERVICE', 'ORDER_SERVICE'
+    ])
   ],
   providers: [JwtStrategy, RefreshTokenStrategy]
 })

@@ -1,14 +1,19 @@
-import { SuccessDto, WithdrawalDto, withRetry } from "@app/lib";
+import { EStateStatus, SuccessDto, TransactionDto, WithdrawalDto, withRetry } from "@app/lib";
 import { HttpException, Inject, Injectable } from "@nestjs/common";
 import { ClientProxy } from "@nestjs/microservices";
 import { errorManager } from '../helpers/errorManager';
-import { firstValueFrom } from "rxjs";
+import { firstValueFrom, from } from "rxjs";
+import { v4 as uuidv4 } from 'uuid';
+import Redis from "ioredis";
+
 
 @Injectable()
 export class BalanceService {
     constructor(
         @Inject('ACCOUNT_SERVICE')
-        private readonly accountClient: ClientProxy
+        private readonly accountClient: ClientProxy,
+        @Inject('REDIS_CLIENT')
+        private redis: Redis
     ){}
 
     async withdrawalList(accountId: string): Promise<WithdrawalDto[]> {
@@ -26,16 +31,21 @@ export class BalanceService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'balance')
+            throw errorManager(err, BalanceService.name);
         }
     }
 
     async withdraw(accountId: string, amount: number): Promise<void | WithdrawalDto> {
+        const token = new TransactionDto(uuidv4(), false, EStateStatus.Pending);
+        const cacheKey = `transaction:${token.uuid}`;
         try {
+            await firstValueFrom( from(this.redis.set(cacheKey, JSON.stringify(token), 'EX', 120))
+                .pipe(withRetry()))
+                .catch(() => { throw new HttpException('INTERNAL_ERROR', 500) });
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<WithdrawalDto>>(
                     { cmd: 'withdraw'},
-                    { accountId, amount }
+                    { accountId, amount, token }
                 ).pipe(withRetry())
             );
 
@@ -47,7 +57,18 @@ export class BalanceService {
                 return result.data;
             };
         } catch (err: any) {
-            throw errorManager(err, 'balance')
+            const cache = await this.redis.get(cacheKey).catch(() => undefined);
+            if(cache){
+                const transaction = JSON.parse(cache) as TransactionDto;
+                if(transaction.status === EStateStatus.Completed){
+                    return;
+                };
+                if(transaction.status === EStateStatus.Failed){
+                    throw errorManager(err, BalanceService.name);
+                };
+                throw errorManager(err, BalanceService.name, token.uuid);
+            };
+            throw errorManager(err, BalanceService.name, token.uuid);
         }
     }
 
@@ -66,7 +87,7 @@ export class BalanceService {
 
             return result.data!;
         } catch (err: any) {
-            throw errorManager(err, 'balance')
+            throw errorManager(err, BalanceService.name);
         }
     }
 }

@@ -64,6 +64,15 @@
         "tsConfigPath": "apps/product/tsconfig.app.json"
       }
     },
+    "rabit-proxy": {
+      "type": "library",
+      "root": "libs/rabit-proxy",
+      "entryFile": "index",
+      "sourceRoot": "libs/rabit-proxy/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/rabit-proxy/tsconfig.lib.json"
+      }
+    },
     "redis": {
       "type": "library",
       "root": "libs/redis",

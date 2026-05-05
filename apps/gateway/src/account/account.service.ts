@@ -29,7 +29,7 @@ export class AccountService {
 
             return result.data!;
         } catch (err) {
-            throw errorManager(err, 'accounts');
+            throw errorManager(err, AccountService.name);
         }   
     }
 
@@ -54,7 +54,7 @@ export class AccountService {
                 return { partialAccount: result.data, jwtAccess }; 
             }
         } catch (err) {
-            throw errorManager(err, 'accounts');
+            throw errorManager(err, AccountService.name);
         }   
     }
 
@@ -77,7 +77,7 @@ export class AccountService {
                 return result.data;
             };
         } catch (err) {
-            throw errorManager(err, 'accounts');
+            throw errorManager(err, AccountService.name);
         }   
     }
 
@@ -94,7 +94,7 @@ export class AccountService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err) {
-            throw errorManager(err, 'accounts');
+            throw errorManager(err, AccountService.name);
         }   
     }
 
@@ -111,7 +111,7 @@ export class AccountService {
                 throw new HttpException(result.message!, result.code!);
             };
         } catch (err) {
-            throw errorManager(err, 'accounts');
+            throw errorManager(err, AccountService.name);
         } 
     }
 }

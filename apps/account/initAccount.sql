@@ -20,7 +20,9 @@ create table account(
 	id binary(16) primary key default(uuid_to_bin(uuid())),
     email varchar(100) unique not null,
     username varchar(50) unique not null,
-    password varchar(255) not null
+    password varchar(255) not null,
+    index idx_email (email),
+    index idx_username (username)
 );
 
 create table user_profile(
@@ -117,17 +119,39 @@ create table balance(
 	foreign key (account_id) references account(id) on delete cascade
 );
 
+create table increment(
+    token binary(16) not null,
+    account_id binary(16) not null,
+    amount decimal(10,2) not null,
+    created datetime not null default(current_timestamp()),
+    primary key(token, account_id),
+    index idx_account (account_id),
+    check(amount > 0),
+    foreign key (account_id) references account(id) on delete cascade
+);
+
 create table withdrawal(
-	id bigint unsigned auto_increment primary key,
+	token binary(16) not null,
     account_id binary(16) not null,
 	amount decimal(10,2) not null,
 	cbu varchar(22) not null,
 	status enum('pending', 'completed', 'failed') not null default('pending'),
 	created datetime not null default(current_timestamp()),
+    primary key(token, account_id),
 	index idx_account (account_id),
     check(amount > 0),
     foreign key (account_id) references account(id) on delete cascade
 );
+
+DELIMITER &&
+CREATE TRIGGER increment_guard
+BEFORE UPDATE ON increment
+FOR EACH ROW
+BEGIN
+	SIGNAL SQLSTATE '45000'
+	SET MESSAGE_TEXT = 'Increment already finalized';
+END&&
+DELIMITER ;
 
 DELIMITER &&
 CREATE TRIGGER withdrawal_guard

@@ -3,7 +3,6 @@ services:
   redis:
     image: redis:8.6-alpine  
     deploy: 
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -14,6 +13,10 @@ services:
       interval: 10s
       timeout: 10s
       retries: 3
+    volumes:
+      - redis-data:/data
+    networks:
+      - ecommerce-net
 
   rabbitmq:
     image: rabbitmq:4.0.9-management-alpine
@@ -22,7 +25,6 @@ services:
     env_file:
       - .env
     deploy: 
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -33,9 +35,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - ecommerce-net
 
   gateway:
-    image: ecommerce-gateway:1.0     
+    image: ecommerce-gateway:1.0    
     ports:
       - '3000:3000'
     env_file:
@@ -44,6 +50,12 @@ services:
       replicas: 1
       restart_policy: 
         condition: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
     depends_on:
       - redis
       - rabbitmq
@@ -51,6 +63,8 @@ services:
       - account_mysql
       - cart_mysql
       - order_mysql
+    networks:
+      - ecommerce-net
 
   product:
     image: ecommerce-product:1.0 
@@ -63,6 +77,8 @@ services:
     depends_on:
       - product_mysql
       - rabbitmq
+    networks:
+      - ecommerce-net
 
   product_mysql:
     image: mysql:9.2
@@ -71,7 +87,6 @@ services:
     environment:
       MYSQL_DATABASE: ${PRODUCT_DB_NAME}
     deploy:
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -86,6 +101,8 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
+    networks:
+      - ecommerce-net
 
   account:
     image: ecommerce-account:1.0
@@ -98,6 +115,8 @@ services:
     depends_on:
       - account_mysql
       - rabbitmq
+    networks:
+      - ecommerce-net
 
   account_mysql:
     image: mysql:9.2  
@@ -106,7 +125,6 @@ services:
     environment:
       MYSQL_DATABASE: ${ACCOUNT_DB_NAME}
     deploy:
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -121,6 +139,8 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
+    networks:
+      - ecommerce-net
 
   cart:
     image: ecommerce-cart:1.0
@@ -133,6 +153,8 @@ services:
     depends_on:
       - cart_mysql
       - rabbitmq
+    networks:
+      - ecommerce-net
 
   cart_mysql:
     image: mysql:9.2
@@ -141,7 +163,6 @@ services:
     environment:
       MYSQL_DATABASE: ${CART_DB_NAME}
     deploy:
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -156,6 +177,8 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
+    networks:
+      - ecommerce-net
 
   order:
     image: ecommerce-order:1.0      
@@ -168,6 +191,8 @@ services:
     depends_on:
       - order_mysql
       - rabbitmq
+    networks:
+      - ecommerce-net
 
   order_mysql:
     image: mysql:9.2 
@@ -176,7 +201,6 @@ services:
     environment:
       MYSQL_DATABASE: ${ORDER_DB_NAME}
     deploy:
-      replicas: 1
       placement: 
         constraints:
           - node.role == manager
@@ -191,13 +215,17 @@ services:
       timeout: 15s
       retries: 5
       start_period: 30s
+    networks:
+      - ecommerce-net
 
 volumes:
   product-mysql-data:
   account-mysql-data:
   cart-mysql-data:
   order-mysql-data:
+  rabbitmq-data:
+  redis-data:
 
 networks:
-  default:
+  ecommerce-net:
     driver: overlay

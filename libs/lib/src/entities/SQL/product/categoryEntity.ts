@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
 
 @Entity('category')
+@Index('idx_slug', ['slug'])
 export class Category {
   constructor(){};
   

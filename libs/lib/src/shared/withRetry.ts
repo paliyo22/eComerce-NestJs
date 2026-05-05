@@ -1,12 +1,7 @@
-import { pipe, retry, timeout, TimeoutError, timer } from "rxjs";
+import { defer, Observable, retry, timeout, timer } from "rxjs";
 
-export const withRetry = <T>() => pipe(
-    timeout<T>(3000),
-    retry<T>({
-        count: 1,
-        delay: (error) => {
-            if (error instanceof TimeoutError) return timer(200);
-            throw error;
-        }
-    })
-);
+export const withRetry = <T>(count: number = 1, delayMs: number = 500, perAttemptTimeout: number = 3000) =>
+  (source: Observable<T>) =>
+    defer(() => source.pipe(timeout(perAttemptTimeout))).pipe(
+      retry({ count, delay: () => timer(delayMs) })
+    );

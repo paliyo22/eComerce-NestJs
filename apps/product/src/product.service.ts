@@ -1,19 +1,24 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { PartialProductDto, ProductDto, CreateProductDto, UpdateProductDto, 
   CreateReviewDto, Product, Category, Review, Tag, Image, MetaP, SuccessDto, 
   EProductCategory, ProductOrderDto, EAccountStatus, UnavailableProductsDto, 
   withRetry, errorMessage, badRequest, unauthorized, banned, deleted, notFound, 
-  notAvailable, AccountDto, AccountReviewDto, ProductReviewDto, PartialAccountDto } from '@app/lib';
+  notAvailable, AccountDto, AccountReviewDto, ProductReviewDto, PartialAccountDto, 
+  TransactionDto, EStateStatus} from '@app/lib';
 import { In, Repository } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, from, retry, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter } from 'events';
 
 @Injectable()
 export class ProductService {
   constructor(
+    private readonly config: ConfigService, 
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
     @InjectRepository(Review)
@@ -28,16 +33,95 @@ export class ProductService {
     private readonly cartClient: ClientProxy,
     @Inject('REDIS_CLIENT')
     private redis: Redis
-  ) {};
+  ) {
+    this.subscriber = this.redis.duplicate();
+    this.setupGlobalSubscriber();
+  }
+
+  private subscriber: Redis;
+
+  private responseEmitter = new EventEmitter();
+
+  private setupGlobalSubscriber() {
+    const pattern = 'transaction:done:*';
+    this.subscriber.psubscribe(pattern);
+    this.subscriber.on('pmessage', (_, channel, message) => {
+      this.responseEmitter.emit(channel, message);
+    });
+    this.subscriber.on('error', (err) => {
+      this.logger.error('Global subscriber error', err);
+    });
+  }
+
+  private readonly logger = new Logger(ProductService.name);
+
 
   private async deleteFromCarts(productIds: string[]): Promise<void> {
-    try{
-      await firstValueFrom(
-        this.cartClient.emit('delete.products.from.carts', { productIds }).pipe(withRetry())
-      );
-    }catch(err: any){
-      console.error('Fallo en la comunicacion con el MS: Cart en el metodo "deleteFromCarts" del MS: product');
-    }
+    await firstValueFrom(
+      this.cartClient.emit('delete.products.from.carts', { productIds })
+      .pipe(retry(1), timeout(100))
+    ).catch(() => {
+      this.logger.error('Fallo en la comunicacion en el metodo "deleteFromCarts"');
+    });
+  }
+
+  private async releaseLock(lockKey: string, token: string): Promise<void> {
+    const luaScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await this.redis.eval(luaScript, 1, lockKey, token).catch(() => {});
+  }
+
+  private async waitForTransaction(token: TransactionDto, timeoutMs: number): Promise<'completed' | 'failed'> {    
+    return new Promise((resolve) => {
+      const channel = `transaction:done:${token.uuid}`;
+      const handleMessage = (status: string) => {
+        cleanup();
+        resolve(status === EStateStatus.Completed ? 'completed' : 'failed');
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.responseEmitter.removeListener(channel, handleMessage);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve('failed');
+      }, timeoutMs);
+
+      this.responseEmitter.on(channel, handleMessage);
+    });
+  }
+
+  async check(token: TransactionDto): Promise<'completed' | 'failed' | 'try'> {
+    const timeout = token.isInternal ? (this.config.get<number>('MESSAGE_TIMEOUT') + 1000) : 3000;
+    const cacheKey = `transaction:${token.uuid}`;
+    const cached = await firstValueFrom(from(this.redis.get(cacheKey)).pipe(withRetry(3))).catch(() => undefined);
+    const lock = `lock:${token.uuid}`;
+    const locked = await this.redis.set(lock, token.uuid, 'EX', 100, 'NX').catch(() => undefined);
+    if(!locked){
+      return await this.waitForTransaction(token, timeout);
+    }else{
+      if(cached){
+        const result = JSON.parse(cached) as TransactionDto;
+        if(result.status !== EStateStatus.Pending){
+          const lock = `lock:${token.uuid}`;
+          await this.releaseLock(lock, token.uuid).catch(() => {});    
+          return result.status === EStateStatus.Completed ? 'completed' : 'failed';
+        }
+      }else{
+        await firstValueFrom(
+          from(this.redis.set(cacheKey, JSON.stringify(token), 'EX', 3600))
+          .pipe(withRetry(3)))
+          .catch(() => {});
+      };
+      return 'try';
+    } 
   }
 
   async getTotal(category?: EProductCategory): Promise<SuccessDto<number>> {
@@ -45,7 +129,7 @@ export class ProductService {
       let total = 0;
       if(!category){
         const cacheKey = `total`;
-        const cached = await this.redis.get(cacheKey);
+        const cached = await this.redis.get(cacheKey).catch(() => {});
         if (cached) {
           return { 
             success: true, 
@@ -59,10 +143,10 @@ export class ProductService {
           .where('m.deletedBy IS NULL')
           .getCount();
         
-        await this.redis.set(cacheKey, total, 'EX', 30);
+        await this.redis.set(cacheKey, total, 'EX', 30).catch(() => {});
       }else{
         const cacheKey = `total:${category}`;
-        const cached = await this.redis.get(cacheKey);
+        const cached = await this.redis.get(cacheKey).catch(() => {});
         if (cached) {
           return { 
             success: true, 
@@ -77,7 +161,7 @@ export class ProductService {
           .andWhere('c.slug = :category', { category })
           .getCount();
         
-        await this.redis.set(cacheKey, total, 'EX', 30);
+        await this.redis.set(cacheKey, total, 'EX', 30).catch(() => {});
       }
       
       if(!total){
@@ -89,14 +173,14 @@ export class ProductService {
         data: total
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getMyProductList(accountId: string, limit?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const cacheKey = `my_products:${accountId}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -117,7 +201,7 @@ export class ProductService {
 
       const data = products.map((p) => new PartialProductDto(p));
       if(data.length){
-        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
       }
       
       return { 
@@ -125,14 +209,14 @@ export class ProductService {
         data 
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getProductList(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const cacheKey = `products:${limit ?? 20}:${offset ?? 0}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -154,25 +238,25 @@ export class ProductService {
         .getMany();
 
       if(!products.length){
-        return errorMessage();
+        return errorMessage(ProductService.name);
       };
 
       const data = products.map((p) => new PartialProductDto(p));
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
 
       return { 
         success: true, 
         data 
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getProductByCategory(category: EProductCategory, limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const cacheKey = `category:${category}:${limit ?? 20}:${offset ?? 0}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -199,21 +283,21 @@ export class ProductService {
       }
 
       const data = products.map((p) => new PartialProductDto(p));
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
 
       return {
         success: true,
         data 
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getFeatured(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const cacheKey = `featured:${limit ?? 10}:${offset ?? 0}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -235,18 +319,18 @@ export class ProductService {
         .getMany();
 
       if(!products.length){
-        return errorMessage();
+        return errorMessage(ProductService.name);
       }
 
       const data = products.map((p) => new PartialProductDto(p));
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
       
       return {
         success: true,
         data
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -303,7 +387,7 @@ export class ProductService {
       };
 
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -325,7 +409,7 @@ export class ProductService {
       }
 
       const cacheKey = `products:${result.data}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -351,14 +435,14 @@ export class ProductService {
 
       const data = products.map((p) => new PartialProductDto(p));
       if(data.length){
-        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
       }
       return { 
         success: true, 
         data
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -416,9 +500,10 @@ export class ProductService {
               .insert()
               .into('prod_x_tag')
               .values(tags.map(t => ({
-                product_id: () => `UUID_TO_BIN('${saved.id}')`,
+                product_id: () => `UUID_TO_BIN(:productId)`,
                 tag_id: t.id
               })))
+              .setParameter('productId', saved.id)
               .execute();
           }
         }
@@ -441,7 +526,7 @@ export class ProductService {
 
       return result;
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -475,13 +560,13 @@ export class ProductService {
       await this.productRepository.update(productId, { discountPercentage: Math.round(discount) });
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return {
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err)
+      return errorMessage(ProductService.name, err)
     }
   }
 
@@ -515,13 +600,13 @@ export class ProductService {
       await this.productRepository.update(productId, { price });
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return { 
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -556,20 +641,20 @@ export class ProductService {
       await this.productRepository.update(productId, { stock });
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return {
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getProductById(productId: string): Promise<SuccessDto<ProductDto>> {
     try {
       const cacheKey = `product:${productId}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -602,7 +687,7 @@ export class ProductService {
         this.accountClient.send<SuccessDto<AccountDto[]>>(
           { cmd: 'get_account_list_info'},
           { accountIds }
-        ).pipe(withRetry())
+        )
       );
 
       if(!accountList.success){ 
@@ -614,14 +699,14 @@ export class ProductService {
       };
       
       const data = new ProductDto(product, accountList.data!);
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
 
       return {
         success: true,
         data
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -666,13 +751,13 @@ export class ProductService {
       this.deleteFromCarts([productId]);
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return {
         success: true
       }
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -708,13 +793,13 @@ export class ProductService {
         .execute();
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
   
       return {
         success: true
       }
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -803,21 +888,21 @@ export class ProductService {
       });
 
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return this.getProductById(productId);
     } catch (err: any) {
       if (err?.message === 'BAD_REQUEST') {
         return badRequest;
       };
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
   async getAccountReviews(accountId: string): Promise<SuccessDto<AccountReviewDto[]>> {
     try {
       const cacheKey = `myReviews:${accountId}`;
-      const cached = await this.redis.get(cacheKey);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
           success: true, 
@@ -833,14 +918,14 @@ export class ProductService {
 
       const data = reviews.map((r) => new AccountReviewDto(r));
       if(data.length){
-        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30);
+        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
       }
       return {
         success: true,
         data
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -873,13 +958,13 @@ export class ProductService {
         .execute();
 
       const cacheKey = `myReviews:${accountId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
       
       const accountList = await firstValueFrom(
         this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
           { cmd: 'get_partial_account_list_info' },
           { accountIds: [accountId]}
-        ).pipe(withRetry())
+        )
       );
       const account = accountList.data ? accountList.data.pop() : undefined; 
       
@@ -897,7 +982,7 @@ export class ProductService {
       if (err?.code === 'ER_DUP_ENTRY') {
         return badRequest;
       }
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -916,21 +1001,22 @@ export class ProductService {
       }
 
       const cacheKey = `myReviews:${accountId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       return {
         success: true
       };
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
   
+  @Cron(CronExpression.EVERY_2_HOURS)
   async calculateRating(): Promise<void> {
     const lockKey = 'lock:calculate_rating';
     const token = uuidv4();
 
-    const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX');
+    const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
 
     if (!lock) return;
     try {
@@ -946,7 +1032,7 @@ export class ProductService {
         WHERE m.deleted_by IS NULL`
       );
     } catch (err: any) {
-      console.error(err.message ?? err);
+      errorMessage(ProductService.name, err);
     } finally {
       const luaScript = `
         if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -955,7 +1041,7 @@ export class ProductService {
           return 0
         end
       `;
-      await this.redis.eval(luaScript, 1, lockKey, token);
+      await this.redis.eval(luaScript, 1, lockKey, token).catch(() => {});
     }
   }
   
@@ -994,7 +1080,7 @@ export class ProductService {
         .execute();
       
       const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey);
+      await this.redis.del(cacheKey).catch(() => {});
 
       this.deleteFromCarts([productId]);
 
@@ -1002,7 +1088,7 @@ export class ProductService {
         success: true
       }; 
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
  
@@ -1044,7 +1130,7 @@ export class ProductService {
         success: true
       }; 
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -1075,11 +1161,11 @@ export class ProductService {
       };
 
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
-  async deleteAccountData(accountId: string): Promise<SuccessDto<void>> {
+  async deleteAccountData(accountId: string): Promise<void> {
     try {
       const productIds = await this.productRepository.manager.transaction(async manager => {        
         const products = await manager.createQueryBuilder(Product, 'p')
@@ -1115,11 +1201,8 @@ export class ProductService {
       if(productIds.length){
         this.deleteFromCarts(productIds);
       }
-      return {
-        success: true
-      }
     } catch (err: any) {
-      return errorMessage(err);
+      this.logger.warn(`Error removing the products from the deleted account ${accountId}`);
     }
   }
 
@@ -1158,7 +1241,7 @@ export class ProductService {
         data: products.map((p) => new PartialProductDto(p))
       }
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -1175,20 +1258,20 @@ export class ProductService {
         .where('p.id IN (:...ids)', { ids })
         .getMany();
     
-      if(ids.length !== productList.length) return errorMessage();
+      if(ids.length !== productList.length) return errorMessage(ProductService.name);
 
       const accountIds = Array.from(new Set(productList.map((p) => p.meta.accountId)));
       const accountList = await firstValueFrom(
         this.accountClient.send<SuccessDto<AccountDto[]>>(
           { cmd: 'get_account_list_info'},
           { accountIds }
-        ).pipe(withRetry())
+        )
       );
       if(!accountList.success){
-        return errorMessage();
+        return errorMessage(ProductService.name);
       }
 
-      if(accountIds.length !== accountList.data.length) return errorMessage();
+      if(accountIds.length !== accountList.data.length) return errorMessage(ProductService.name);
 
       await this.productRepository.manager.transaction(async manager => {
         const prods = await manager.createQueryBuilder(Product, 'p')
@@ -1242,7 +1325,7 @@ export class ProductService {
           data: unavailable
         }
       }
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
@@ -1262,12 +1345,13 @@ export class ProductService {
         return { success: false };
       }
     } catch (err: any) {
-      return errorMessage(err);
+      return errorMessage(ProductService.name, err);
     }
   }
 
-  async restoreStock(productIds: {productId: string, amount: number}[]): Promise<void> {
+  async restoreStock(productIds: {productId: string, amount: number}[], token: TransactionDto): Promise<void> {
     const failures: { id: string; amount: number; error: any }[] = [];
+    const cacheKey = `transaction:${token.uuid}`;
 
     for (const p of productIds) {
       try {
@@ -1300,7 +1384,15 @@ export class ProductService {
     };
     
     if(failures.length){
-      console.error(`restoreStock failed ${failures.length} times: \n${failures}`);
-    }
+      this.logger.fatal(`restoreStock failed ${failures.length} times: \n${failures}`);
+    };
+    token.status = EStateStatus.Completed;
+    await firstValueFrom(
+      from(this.redis.set(cacheKey, JSON.stringify(token), 'KEEPTTL'))
+      .pipe(withRetry(3)))
+      .catch(() => {});
+    const lock = `lock:${token.uuid}`;
+    await this.releaseLock(lock, token.uuid);
+    await this.redis.publish(`transaction:done:${token.uuid}`, token.status).catch(() => {});
   }
 }
