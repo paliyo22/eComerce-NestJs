@@ -9,9 +9,9 @@ export class PartialProductDto {
     price: number;
     discountPercentage: number;
     stock: number;
-    brand: string;
+    brand?: string;
     ratingAvg: number;
-    tags?: string[];
+    tags: string[];
     images?: string[]; 
     thumbnail?: string;
     status: EProductStatus;
@@ -21,13 +21,13 @@ export class PartialProductDto {
         this.title = product.title;
         this.description = product.description;
         this.category = product.category.slug;
-        this.price = product.price;
-        this.discountPercentage = product.discountPercentage;
+        this.price = Number(product.price);
+        this.discountPercentage = Number(product.discountPercentage);
         this.stock = product.stock;
-        this.brand = product.brand;
-        this.ratingAvg = product.ratingAvg;
-        this.tags = product.tags? product.tags.map(t => t.title): undefined;
-        this.images = product.images? product.images.map(i => i.link): undefined;
+        this.brand = product.brand ?? undefined;
+        this.ratingAvg = Number(product.ratingAvg);
+        this.tags = product.tags ? product.tags.map(t => t.title) : [];
+        this.images = product.images ? product.images.map(i => i.link) : [];
         this.thumbnail = product.thumbnail ?? undefined;
         if(product.meta.deletedBy){
             if(product.meta.deletedBy === product.meta.accountId){

@@ -41,24 +41,9 @@ export class ProductController {
 
   @Get('/featured')
   async getFeatured(
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
-    @Query('offset', new ParseIntPipe({ optional: true })) offset?: number
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number
   ): Promise<PartialProductDto[]> {
-    return this.productService.getFeatured(limit, offset);
-  }
-
-  @Get('/search')
-  searchProduct (
-    @Query('contain') contain: string
-  ): Promise<PartialProductDto[]> {
-    return this.productService.searchProduct(contain);
-  }
-
-  @Get('/user/:username')
-  async getAccountProducts(
-    @Param('username') username: string
-  ): Promise<PartialProductDto[]> {
-    return this.productService.accountProductList(username);
+    return this.productService.getFeatured(limit);
   }
 
   //--------------------- Private Methods ----------------------------------
@@ -69,7 +54,7 @@ export class ProductController {
   async addProduct(
     @Body() product: CreateProductDto,
     @User() data: JwtPayload
-  ): Promise<ProductDto> {
+  ): Promise<ProductDto | string> {
     if(data.role === ERole.User || getRoleGroup(data.role) === ERole.Admin){
       throw new ForbiddenException();
     }

@@ -1,5 +1,5 @@
 import { AtMostOne } from "../../../shared/atMostOne.decorator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { IsDate, IsEmail, IsNotEmpty, IsOptional, IsString, ValidateNested } from "class-validator";
 
 class AdminAccount {
@@ -24,8 +24,8 @@ class UserAccount {
     lastname?: string;
 
     @IsOptional()
+    @Transform(({ value }) => value ? new Date(value) : undefined)
     @IsDate()
-    @IsNotEmpty()
     birth?: Date;
 
     @IsOptional()

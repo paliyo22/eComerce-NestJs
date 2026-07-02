@@ -19,7 +19,7 @@ create table product (
     price decimal(10,2) not null,
     discount_percentage tinyint unsigned not null default(0),
     stock smallint unsigned not null default(0),
-    brand varchar(100) not null,
+    brand varchar(100),
     weight float not null,
 	warranty_info varchar(250),
     shipping_info varchar(250),

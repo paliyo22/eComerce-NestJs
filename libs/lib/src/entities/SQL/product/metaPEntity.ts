@@ -18,9 +18,7 @@ export class MetaP {
   @BinaryUuidColumn({ name: 'account_id' })
   accountId: string;
   
-  @OneToOne(() => Product, (product) => product.meta, {
-    onDelete: 'CASCADE',
-  })
+  @OneToOne(() => Product, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 

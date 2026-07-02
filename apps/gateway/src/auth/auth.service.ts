@@ -30,22 +30,22 @@ export class AuthService {
     
     async logIn(account: string, password: string, ip: string, device: string): Promise<{ partialAccount: PartialAccountDto, jwtAccess: string }> {
         try {
-        const result = await firstValueFrom(
-            this.accountClient.send<SuccessDto<PartialAccountDto>>(
-                { cmd: 'log_in' },
-                { account, password, ip, device }
-            ).pipe(withRetry())
-        );
+            const result = await firstValueFrom(
+                this.accountClient.send<SuccessDto<PartialAccountDto>>(
+                    { cmd: 'log_in' },
+                    { account, password, ip, device }
+                ).pipe(withRetry())
+            );
 
-        if (!result.success) {
-            throw new HttpException(result.message!, result.code!);
-        }
+            if (!result.success) {
+                throw new HttpException(result.message!, result.code!);
+            }
 
-        const partialAccount = result.data!;
+            const partialAccount = result.data!;
 
-        const jwtAccess = await this.generateJwt(partialAccount);
+            const jwtAccess = await this.generateJwt(partialAccount);
 
-        return { partialAccount, jwtAccess };
+            return { partialAccount, jwtAccess };
 
         } catch (err) {
             throw errorManager(err, AuthService.name);

@@ -11,13 +11,13 @@ export class CartController {
   ) {}
 
   @MessagePattern({ cmd: 'get_cart' })
-  async getCart(@Payload() data: { accountId: string, cartId?: string }): Promise<SuccessDto<CartOutputDto>> {
-    return await this.cartService.getCart(data.accountId, data.cartId);
+  async getCart(@Payload() data: { accountId: string }): Promise<SuccessDto<CartOutputDto>> {
+    return await this.cartService.getCart(data.accountId);
   }
 
   @MessagePattern({ cmd: 'add_product_to_cart' })
-  async addToCart(@Payload() data: { accountId: string, newProduct: AddProductToCartDto, cartId?: string }): Promise<SuccessDto<void>> {
-    return this.cartService.addToCart(data.accountId, data.newProduct, data.cartId);
+  async addToCart(@Payload() data: { accountId: string, newProduct: AddProductToCartDto }): Promise<SuccessDto<void>> {
+    return this.cartService.addToCart(data.accountId, data.newProduct);
   }
 
   @MessagePattern({ cmd: 'delete_product_from_cart' })

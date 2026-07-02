@@ -13,7 +13,7 @@ export class AccountReviewDto{
         this.brand = review.product.brand;
         this.thumbnail = review.product.thumbnail ?? undefined;
         this.rating = review.rating;
-        this.comment = review.comment;
+        this.comment = review.comment ?? undefined;
         this.created = new Date(review.created);
     };
 }

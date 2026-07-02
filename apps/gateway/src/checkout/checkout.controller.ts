@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, 
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, 
     Get, HttpCode, Param, ParseBoolPipe, ParseUUIDPipe, Post, Query, Req, 
     UseGuards } from "@nestjs/common";
 import { CheckoutService } from "./checkout.service";
@@ -52,9 +52,8 @@ export class CheckoutController {
     async freeOrderResult (
         @User('accountId') accountId: string,
         @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string,
-        @Query('success', ParseBoolPipe) success: boolean
     ): Promise<void>{
-        return this.checkoutService.freeOrderResult(draftOrderId, accountId, success);
+        return this.checkoutService.freeOrderResult(draftOrderId, accountId);
     }
     
     @Post('/webhook/mp')
@@ -94,5 +93,15 @@ export class CheckoutController {
         @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
     ): Promise<string> {
         return this.checkoutService.createPaymentLink(accountId, draftOrderId);
-    }    
+    };
+    
+    @Delete('/:draftOrderId')
+    @UseGuards(JwtAuthGuard)
+    @HttpCode(201)
+    async cancelDraftOrder(
+        @User('accountId') accountId: string,
+        @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
+    ): Promise<void> {
+        return this.checkoutService.cancelDraftOrder(accountId, draftOrderId);
+    };
 }

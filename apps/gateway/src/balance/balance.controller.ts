@@ -1,6 +1,6 @@
-import { Controller, Get, HttpCode, ParseIntPipe, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, ParseIntPipe, Post, UseGuards } from "@nestjs/common";
 import { BalanceService } from "./balance.service";
-import { WithdrawalDto } from "@app/lib";
+import { IncomeDto, WithdrawalDto } from "@app/lib";
 import { User } from "../decorators/authGuard.decorator";
 import { JwtAuthGuard } from "../guards/jwtAuth.guard";
 
@@ -22,16 +22,23 @@ export class BalanceController {
     @HttpCode(201)
     async withdraw(
         @User('accountId') accountId: string,
-        @Query('amount', ParseIntPipe) amount: number
+        @Body('amount', ParseIntPipe) amount: number
     ): Promise<WithdrawalDto | void>{
         return this.balanceService.withdraw(accountId, amount);
     };
 
-    @Get('/withdrawals')
+    @Get('/withdrawal-list')
     async withdrawalList(
         @User('accountId') accountId: string
     ): Promise<WithdrawalDto[]>{
         return this.balanceService.withdrawalList(accountId);
+    };
+
+    @Get('/income-list')
+    async incomeList(
+        @User('accountId') accountId: string
+    ): Promise<IncomeDto[]>{
+        return this.balanceService.incomeList(accountId);
     }
     
 }

@@ -29,7 +29,7 @@ import { RabbitProxyModule } from '@app/rabit-proxy';
               database: config.get<string>('ORDER_DB_NAME')
             }
           ),
-          synchronize: config.get<string>('NODE_ENV') === 'production',
+          synchronize: config.get<string>('NODE_ENV') === 'development',
           poolSize: 10,
           timezone: 'Z',
           entities: orderEntities,

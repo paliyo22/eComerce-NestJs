@@ -3,10 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { SuccessDto, Cart, AddProductToCartDto, CartProduct, 
-  CartOutputDto, PartialProductDto, ProductOrderDto, withRetry, 
-  UnavailableProductsDto, errorMessage, notAvailable, badRequest, 
-  notFound, unauthorized, 
-  OrderItem} from '@app/lib';
+  CartOutputDto, PartialProductDto, ProductOrderDto, UnavailableProductsDto, 
+  errorMessage, notAvailable, badRequest, notFound, OrderItem, uuidTransformer} from '@app/lib';
 import { firstValueFrom } from 'rxjs';
 import Redis from 'ioredis';
 
@@ -29,18 +27,19 @@ export class CartService {
     let cart = await this.cartRepo
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.cartProducts', 'cp')
-      .where('c.accountId = :accountId', { accountId })
+      .where('c.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
       .getOne();
 
     if(!cart){
-      cart = await this.cartRepo.save({ accountId });
+      cart = this.cartRepo.create({ accountId })
+      await this.cartRepo.save(cart, { reload: false });
       cart.cartProducts = [];
     }
 
     return cart;
   }
 
-  async getCart(accountId: string, cartId?: string): Promise<SuccessDto<CartOutputDto>> {
+  async getCart(accountId: string): Promise<SuccessDto<CartOutputDto>> {
     try {
       const cacheKey = `cart:${accountId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
@@ -51,19 +50,9 @@ export class CartService {
         };
       }
 
-      let cart: Cart;
+      const cart = await this.myCart(accountId);
 
-      if(!cartId){
-        cart = await this.myCart(accountId);
-      }else {
-        cart = await this.cartRepo
-        .createQueryBuilder('c')
-        .leftJoinAndSelect('c.cartProducts', 'cp')
-        .where('c.id = :id', { id: cartId})
-        .getOne();
-      }
-
-      if (!cart) return notFound;
+      if (!cart) return errorMessage(); //esto no deberia pasar jamas porque solo puede fallar si la query falla y eso lo mandaria al catch.
 
       if(!cart.cartProducts.length){
         return {
@@ -103,23 +92,18 @@ export class CartService {
     }  
   }
 
-  async addToCart(accountId: string, newProduct: AddProductToCartDto, cartId?: string): Promise<SuccessDto<void>> {
+  async addToCart(accountId: string, newProduct: AddProductToCartDto): Promise<SuccessDto<void>> {
     try {    
       const cacheKey = `cart:${accountId}`;
-      let cart: Cart;
-      if(!cartId){
-        cart = await this.myCart(accountId);
+      const cached = await this.redis.get(cacheKey).catch(() => {});
+      
+      let cart: Cart | CartOutputDto;
+      if (cached) {
+        cart = JSON.parse(cached) as CartOutputDto 
       }else{
-        cart = await this.cartRepo
-        .createQueryBuilder('c')
-        .leftJoinAndSelect('c.cartProducts', 'cp')
-        .where('c.id = :id', { id: cartId})
-        .andWhere('c.accountId = :accountId', { accountId })
-        .getOne();
-      };
-
-      if(!cart)
-         return unauthorized;
+        cart = await this.myCart(accountId);
+        if(!cart) return errorMessage();
+      }    
 
       const product = await firstValueFrom(
         this.productClient.send<SuccessDto<void>>(
@@ -132,17 +116,31 @@ export class CartService {
         return notAvailable;
       }
 
-      const cartProduct = cart.cartProducts.find((i) => i.productId === newProduct.productId);
-
+      let cartProduct: CartProduct;
+      if(cart instanceof Cart){
+        cartProduct = cart.cartProducts.find((i) => i.productId === newProduct.productId);
+      }else{
+        const aux = cart.products.find((i) => i.productId === newProduct.productId);
+        if(aux){
+          cartProduct= {
+            id: aux.cartProductId,
+            cartId: cart.id,
+            productId: newProduct.productId,
+            amount: aux.amount
+          } as CartProduct;
+        }
+      }
+      
       if (cartProduct) {
         cartProduct.amount += newProduct.amount;
         await this.cartProductRepo.save(cartProduct);
       } else {
-        await this.cartProductRepo.save({
+        const result = this.cartProductRepo.create({
           cartId: cart.id,
           productId: newProduct.productId,
           amount: newProduct.amount
-        });
+        })
+        await this.cartProductRepo.save(result);
       }
 
       await this.redis.del(cacheKey).catch(() => {});
@@ -158,26 +156,20 @@ export class CartService {
   async deleteFromCart(accountId: string, cartProductId: string): Promise<SuccessDto<void>> {
     try { 
       const cacheKey = `cart:${accountId}`;
-      /*
-      const result = await this.cartProductRepo
-        .createQueryBuilder('cp')
-        .delete()
-        .where('cp.id = :id', { id: cartProductId })
-        .andWhere(`cp.cart_id IN (SELECT id FROM cart WHERE account_id = :accountId)`, { accountId })
-        .execute();
-      */
-
-      const cartSubQuery = this.cartRepo
-        .createQueryBuilder('c')
-        .select('c.id')
-        .where('c.accountId = :accountId', { accountId });
+      const cached = await this.redis.get(cacheKey).catch(() => {});
+      
+      let cartId: string;
+      if (cached) {
+        cartId = (JSON.parse(cached) as CartOutputDto).id; 
+      }else{
+        cartId = (await this.myCart(accountId)).id;
+      }
 
       const result = await this.cartProductRepo
-        .createQueryBuilder('cp')
+        .createQueryBuilder()
         .delete()
-        .where('cp.id = :id', { id: cartProductId })
-        .andWhere(`cp.cartId IN (${cartSubQuery.getQuery()})`)
-        .setParameters(cartSubQuery.getParameters())
+        .where('id = :id', { id: uuidTransformer.to(cartProductId) })
+        .andWhere('cartId = :cartId', { cartId: uuidTransformer.to(cartId) })
         .execute();
 
       if (result.affected === 0) {
@@ -197,9 +189,9 @@ export class CartService {
     try {
       const cacheKey = `cart:${accountId}`;
       const aux = await this.cartRepo
-      .createQueryBuilder('c')
+      .createQueryBuilder()
       .delete()
-      .where('c.accountId = :accountId', { accountId })
+      .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
       .execute();
 
       if(!aux.affected){
@@ -216,34 +208,28 @@ export class CartService {
   }
 
   async setAmount(accountId: string, cartProductId: string, amount: number): Promise<SuccessDto<void>> {
-    try { 
-      const cacheKey = `cart:${accountId}`;
- 
+    try {  
       if (amount === 0) {
         return this.deleteFromCart(accountId, cartProductId);
       }
-      /*
-      const result = await this.cartProductRepo
-        .createQueryBuilder('cp')
-        .update()
-        .set({ amount })
-        .where('cp.id = :id', { id: cartProductId })
-        .andWhere(`cp.cart_id IN (SELECT id FROM cart WHERE account_id = :accountId)`, { accountId })
-        .execute();
-      */
-      const cartSubQuery = this.cartRepo
-          .createQueryBuilder('c')
-          .select('c.id')
-          .where('c.accountId = :accountId', { accountId });
+
+      const cacheKey = `cart:${accountId}`;
+      const cached = await this.redis.get(cacheKey).catch(() => {});
+      
+      let cartId: string;
+      if (cached) {
+        cartId = (JSON.parse(cached) as CartOutputDto).id; 
+      }else{
+        cartId = (await this.myCart(accountId)).id;
+      }
 
       const result = await this.cartProductRepo
-          .createQueryBuilder('cp')
-          .update()
-          .set({ amount })
-          .where('cp.id = :id', { id: cartProductId })
-          .andWhere(`cp.cartId IN (${cartSubQuery.getQuery()})`)
-          .setParameters(cartSubQuery.getParameters())
-          .execute();
+        .createQueryBuilder()
+        .update()
+        .set({ amount })
+        .where('id = :id', { id: uuidTransformer.to(cartProductId) })
+        .andWhere(`cartId = :cartId`, { cartId: uuidTransformer.to(cartId) })
+        .execute();
 
       if(!result.affected)
         return notFound;
@@ -264,7 +250,7 @@ export class CartService {
         const cartProduct = await this.cartProductRepo
           .createQueryBuilder('p')
           .leftJoinAndSelect('p.cart', 'c')
-          .where('p.id = :id', {id: cartProductId})
+          .where('p.id = :id', {id: uuidTransformer.to(cartProductId) })
           .getOne();
 
         if(!cartProduct || cartProduct.cart.accountId !== accountId){
@@ -276,7 +262,7 @@ export class CartService {
         const cart = await this.cartRepo
           .createQueryBuilder('c')
           .leftJoinAndSelect('c.cartProducts', 'cp')
-          .where('c.id = :id', { id: cartId })
+          .where('c.id = :id', { id: uuidTransformer.to(cartId) })
           .getOne();
 
         if(!cart || cart.accountId !== accountId || !cart.cartProducts.length){
@@ -314,30 +300,36 @@ export class CartService {
 
   async deleteProductsFromCarts(productIds: string[]): Promise<void> {
     try {
+      const ids = productIds.map((p) => uuidTransformer.to(p));
       await this.cartProductRepo
-        .createQueryBuilder('c')
+        .createQueryBuilder()
         .delete()
-        .where('c.productId IN (:...ids)', { ids: productIds })
+        .where('productId IN (:...ids)', { ids })
         .execute();    
     } catch (err: any) {
-      this.logger.warn('Fallo el metodo "deleteProductsFromCarts" del MS: Cart');
+      this.logger.warn('The method "deleteProductsFromCarts" has failed.');
     }
   }
 
   async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
     try {
-      const products = items.map((i) => i.productId);
-      const cartSubQuery = this.cartRepo
-        .createQueryBuilder('c')
-        .select('c.id')
-        .where('c.accountId = :accountId', { accountId });
+      const cacheKey = `cart:${accountId}`;
+      const cached = await this.redis.get(cacheKey).catch(() => {});
+      
+      let cartId: string;
+      if (cached) {
+        cartId = (JSON.parse(cached) as CartOutputDto).id; 
+      }else{
+        cartId = (await this.myCart(accountId)).id;
+      }
 
-      const result = await this.cartProductRepo
-        .createQueryBuilder('cp')
+      const products = items.map((i) => uuidTransformer.to(i.productId));
+
+      await this.cartProductRepo
+        .createQueryBuilder()
         .delete()
-        .where('cp.productId IN (:...productIds)', { productIds: products })
-        .andWhere(`cp.cartId IN (${cartSubQuery.getQuery()})`)
-        .setParameters(cartSubQuery.getParameters())
+        .where('productId IN (:...productIds)', { productIds: products })
+        .andWhere(`cartId = :cartId`, { cartId: uuidTransformer.to(cartId) })
         .execute();
 
     } catch (err: any) {

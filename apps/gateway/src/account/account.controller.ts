@@ -1,12 +1,16 @@
 import { AccountService } from './account.service';
 import type { Response, Request } from 'express';
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, 
-    Patch, Post, Put, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
-import { AuthDto, AccountOutputDto, CreateAccountDto, UpdateAccountDto, unauthorized, badRequest } from '@app/lib';
+    NotAcceptableException, 
+    Param, Patch, Post, Put, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { AuthDto, AccountOutputDto, CreateAccountDto, UpdateAccountDto, unauthorized, badRequest,
+    getRoleGroup } from '@app/lib';
 import { ConfigService } from '@nestjs/config';
 import { User } from '../decorators/authGuard.decorator';
 import { JwtAuthGuard } from '../guards/jwtAuth.guard';
 import { cookieMaker } from '../helpers/cookieMaker';
+import { PublicAccountDto } from '@app/lib/dtos/api/account/publicAccountDto';
+import { type JwtPayload } from '../interfaces/JwtPayload';
 
 @Controller('account')
 export class AccountController {
@@ -44,7 +48,7 @@ export class AccountController {
 
     @Put()
     @UseGuards(JwtAuthGuard)
-    async updateBusiness(
+    async updateAccount(
         @User('accountId') accountId: string,
         @Body() account: UpdateAccountDto
     ): Promise<AccountOutputDto | void> {
@@ -57,7 +61,7 @@ export class AccountController {
         return this.accountService.updateAccount(accountId, account);
     }
 
-    @Patch()
+    @Patch('/password')
     @UseGuards(JwtAuthGuard)
     @HttpCode(204)
     async changePassword(
@@ -67,13 +71,37 @@ export class AccountController {
         await this.accountService.changePassword(accountId, passwords.oldPassword, passwords.newPassword);
     }
 
-    @Delete('/delete')
+    @Patch('/cbu')
+    @UseGuards(JwtAuthGuard)
+    @HttpCode(204)
+    async changeCBU(
+        @User() data: JwtPayload,
+        @Body('password') password: string,
+        @Body('newCBU') newCBU: string,
+    ): Promise<void> {
+        if(getRoleGroup(data.role) === 'admin'){
+            throw new NotAcceptableException();
+        }
+        await this.accountService.changeCBU(data.accountId, password, newCBU);
+    }
+
+    @Delete()
     @UseGuards(JwtAuthGuard)
     @HttpCode(204)
     async deleteAccount(
         @User('accountId') accountId: string,
-        @Body('password') password: string
+        @Body('password') password: string,
+        @Res({ passthrough: true }) res: Response
     ): Promise<void> {
         await this.accountService.deleteAccount(accountId, password);
+        res.clearCookie('accessToken');
+        res.clearCookie('refreshToken');
+    }
+
+    @Get('/:username')
+    async getAccountPublicInfo(
+        @Param('username') username: string
+    ): Promise<PublicAccountDto> {
+        return this.accountService.getPublicInfo(username);
     }
 }

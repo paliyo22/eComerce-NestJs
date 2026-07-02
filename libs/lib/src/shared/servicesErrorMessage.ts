@@ -3,7 +3,7 @@ import { SuccessDto } from "./succesDto";
 
 const globalLogger = new Logger('GlobalErrorHelper');
 
-export function errorMessage(msName: string, err?: any): SuccessDto<any> {
+export function errorMessage(msName?: string, err?: any): SuccessDto<any> {
   if(err){
     globalLogger.error(`[${msName}] ${err.message ?? err}`, err.stack);
   };

@@ -38,8 +38,16 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response
     ): Promise<void> {
         const device = req.headers['user-agent'] ?? 'unknown';
-        res.clearCookie('accessToken');
-        res.clearCookie('refreshToken');
+        res.clearCookie('accessToken', {
+            httpOnly: true,
+            secure: this.config.get<string>('NODE_ENV') === 'production',
+            sameSite: 'none'
+        });
+        res.clearCookie('refreshToken', {
+            httpOnly: true,
+            secure: this.config.get<string>('NODE_ENV') === 'production',
+            sameSite: 'none'
+        });
         this.authService.logOut(accountId, device);
     }
 

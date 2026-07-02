@@ -1,6 +1,6 @@
-import { EStateStatus, SuccessDto, TransactionDto, WithdrawalDto, withRetry } from "@app/lib";
+import { EStateStatus, IncomeDto, SuccessDto, TransactionDto, WithdrawalDto, withRetry } from "@app/lib";
 import { HttpException, Inject, Injectable } from "@nestjs/common";
-import { ClientProxy } from "@nestjs/microservices";
+import { ClientProxy, RpcException } from "@nestjs/microservices";
 import { errorManager } from '../helpers/errorManager';
 import { firstValueFrom, from } from "rxjs";
 import { v4 as uuidv4 } from 'uuid';
@@ -64,11 +64,14 @@ export class BalanceService {
                     return;
                 };
                 if(transaction.status === EStateStatus.Failed){
-                    throw errorManager(err, BalanceService.name);
+                    throw new HttpException('INTERNAL_ERROR', 500);
                 };
-                throw errorManager(err, BalanceService.name, token.uuid);
+                throw new HttpException({
+                    message: 'TRANSACTION_PENDING',
+                    data: token.uuid
+                }, 504);
             };
-            throw errorManager(err, BalanceService.name, token.uuid);
+            throw errorManager(err, BalanceService.name);
         }
     }
 
@@ -77,6 +80,25 @@ export class BalanceService {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<number>>(
                     { cmd: 'get_balance'},
+                    { accountId }
+                ).pipe(withRetry())
+            );
+
+            if(!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+
+            return result.data!;
+        } catch (err: any) {
+            throw errorManager(err, BalanceService.name);
+        }
+    }
+
+    async incomeList(accountId: string): Promise<IncomeDto[]> {
+        try {
+            const result = await firstValueFrom(
+                this.accountClient.send<SuccessDto<IncomeDto[]>>(
+                    { cmd: 'get_income_list'},
                     { accountId }
                 ).pipe(withRetry())
             );

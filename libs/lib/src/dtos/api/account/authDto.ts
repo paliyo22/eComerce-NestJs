@@ -2,6 +2,7 @@ import { ERole } from "../../../enums/ERole";
 import { PartialAccountDto } from "../../events/account/partialAccountDto";
 
 export class AuthDto {
+    email: string;
     username: string; 
     role: ERole; 
     status: string;

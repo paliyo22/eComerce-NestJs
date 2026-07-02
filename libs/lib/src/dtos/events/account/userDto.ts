@@ -10,7 +10,7 @@ export class UserProfileDto {
     constructor(user: UserProfile){
         this.firstname = user.firstname;
         this.lastname = user.lastname;
-        this.birth = new Date(user.birth) ?? undefined;
+        this.birth = user.birth ? new Date(user.birth) : undefined;
         this.phone = user.phone ?? undefined;
         this.cbu = user.cbu ?? undefined;
     };

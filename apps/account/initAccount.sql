@@ -122,6 +122,7 @@ create table balance(
 create table increment(
     token binary(16) not null,
     account_id binary(16) not null,
+    order_id binary(16) not null,
     amount decimal(10,2) not null,
     created datetime not null default(current_timestamp()),
     primary key(token, account_id),

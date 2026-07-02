@@ -11,12 +11,12 @@ export class CartService {
         private readonly cartClient: ClientProxy
     ) {};
 
-    async getCart(accountId: string, cartId?: string): Promise<CartOutputDto> {
+    async getCart(accountId: string): Promise<CartOutputDto> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<CartOutputDto>>(
                     { cmd: 'get_cart' },
-                    { accountId, cartId }
+                    { accountId }
                 ).pipe(withRetry())
             );
 
@@ -47,12 +47,12 @@ export class CartService {
         }
     }
 
-    async addToCart(accountId: string, newProduct: AddProductToCartDto, cartId?: string): Promise<void> {
+    async addToCart(accountId: string, newProduct: AddProductToCartDto): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.cartClient.send<SuccessDto<void>>(
                     { cmd: 'add_product_to_cart' },
-                    { accountId, newProduct, cartId }
+                    { accountId, newProduct }
                 ).pipe(withRetry())
             );
 

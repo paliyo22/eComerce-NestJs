@@ -1,7 +1,7 @@
 import { Controller, Get, HttpException, Param, 
-    ParseUUIDPipe, UseGuards } from "@nestjs/common";
+    ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
 import { GeneralService } from "./general.service";
-import { EStateStatus } from "@app/lib";
+import { EStateStatus, PartialProductDto } from "@app/lib";
 import { JwtAuthGuard } from "../guards/jwtAuth.guard";
 
 @Controller()
@@ -20,7 +20,7 @@ export class GeneralController {
             throw new HttpException('', 102);
         };
         if(result === EStateStatus.Failed){
-            throw new HttpException('Transaction failed', 500);
+            throw new HttpException('FAILED', 500);
         };
     }
 
@@ -28,4 +28,33 @@ export class GeneralController {
     async healt(): Promise<string>{
         return 'Anda bien!!!';        
     }
+
+    @Get('/search')
+    async search (
+        @Query('contain') contains: string
+    ): Promise<{ products: PartialProductDto[], accounts: string[] }> {
+        return this.generalService.search(contains);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+    //---------------------- Initial load for TESTING ---------------------------------
+    @Get('/categories')
+    async getCategories(): Promise<string[]>{
+        return this.generalService.getCategories();        
+    }
+
+    @Post('/init')
+    async initTestingData (): Promise<string> {
+        return this.generalService.testingLoad();
+    };
 }

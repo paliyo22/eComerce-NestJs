@@ -30,9 +30,10 @@ export class CreateProductDto {
     @IsNotEmpty()
     stock: number;
 
+    @IsOptional()
     @IsString()
     @IsNotEmpty()
-    brand: string;
+    brand?: string;
 
     @IsNumber({ maxDecimalPlaces: 2 })
     @Min(0)
@@ -53,12 +54,10 @@ export class CreateProductDto {
 
     @IsArray()
     @IsOptional()
-    @ArrayNotEmpty()
     tags?: string[];
 
     @IsArray()
     @IsOptional()
-    @ArrayNotEmpty()
     images?: string[]; 
 
     @IsString()

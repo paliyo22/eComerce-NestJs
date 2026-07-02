@@ -4,6 +4,7 @@ import { AccountDto } from "../../events/account/accountDto";
 import { ProductReviewDto } from "./productReviewDto";
 
 export class ProductDto extends PartialProductDto {
+  accountUsername: string; 
   meta: {
     created: Date,
     updated: Date
@@ -20,22 +21,25 @@ export class ProductDto extends PartialProductDto {
     country: string;
     phone: string;
   }[];
-  reviews?: ProductReviewDto[];
+  reviews: ProductReviewDto[];
   warrantyInfo?: string;
   shippingInfo?: string; 
   
   constructor(product: Product, accountList: AccountDto[]){
     super(product);
     const account = accountList.find((a) => a.id === product.meta.accountId);
-    this.meta.created = new Date(product.meta.created);
-    this.meta.updated = new Date(product.meta.updated);
+    this.meta = {
+      created: new Date(product.meta.created),
+      updated: new Date(product.meta.updated)
+    };
     this.weight = product.weight;
     this.physical = product.physical;
-    this.accountName = account.businessProfile.title ?? `${account.userProfile.firstname} ${account.userProfile.lastname}`;
-    this.contactPhone = account.businessProfile.phone ?? account.userProfile.phone;
+    this.accountUsername = account.username;
+    this.accountName = account.businessProfile ? account.businessProfile.title : `${account.userProfile.firstname} ${account.userProfile.lastname}`;
+    this.contactPhone = account.businessProfile ? account.businessProfile.phone : account.userProfile.phone;
     this.contactEmail = account.email;
-    this.accountBio = account.businessProfile.bio ?? undefined;
-    this.store = account.store? account.store.map((s) => {
+    this.accountBio = account.businessProfile?.bio ?? undefined;
+    this.store = account.store ? account.store.map((s) => {
       return {
         address: s.address.address,
         city: s.address.city,
@@ -55,6 +59,6 @@ export class ProductDto extends PartialProductDto {
         };  
       });
     };
-    this.reviews = result.length? result : undefined;
+    this.reviews = result;
   };
 }

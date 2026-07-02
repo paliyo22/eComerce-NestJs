@@ -2,10 +2,10 @@ import { Check, Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne }
 import { Account } from "./accountEntity";
 import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator";
 
-@Entity('increment')
+@Entity('income')
 @Check('amount > 0')
 @Index('idx_account', ['accountId'])
-export class Increment {
+export class Income {
     constructor(){};
     
     @PrimaryBinaryUuidColumn()
@@ -17,6 +17,9 @@ export class Increment {
 
     @PrimaryBinaryUuidColumn({ name: 'account_id' })
     accountId: string;
+
+    @PrimaryBinaryUuidColumn({ name: 'order_id' })
+    orderId: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number;

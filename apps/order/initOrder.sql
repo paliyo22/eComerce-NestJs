@@ -12,7 +12,7 @@ create table purchase_order(
     draft_order_id binary(16) unique,
     contact_email varchar(100) not null,
 	total decimal(10,2) not null,
-    shipping varchar(250) not null,
+    shipping varchar(350) not null,
 	created datetime not null default(current_timestamp()),
     index idx_account (account_id),
     index idx_date (created)

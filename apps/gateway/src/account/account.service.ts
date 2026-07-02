@@ -5,6 +5,7 @@ import { AuthService } from '../auth/auth.service';
 import { SuccessDto, PartialAccountDto, AccountOutputDto, withRetry, 
     CreateAccountDto, UpdateAccountDto } from '@app/lib';
 import { errorManager } from "../helpers/errorManager";
+import { PublicAccountDto } from '@app/lib/dtos/api/account/publicAccountDto';
 
 @Injectable()
 export class AccountService {
@@ -113,5 +114,41 @@ export class AccountService {
         } catch (err) {
             throw errorManager(err, AccountService.name);
         } 
+    }
+
+    async changeCBU(accountId: string, password: string, newCBU: string): Promise<void> {
+        try {
+            const result = await firstValueFrom(
+                this.accountClient.send<SuccessDto<void>>(
+                    {cmd: 'change_cbu'},
+                    { accountId, password, newCBU }
+                ).pipe(withRetry())
+            ); 
+
+            if(!result.success) {
+                throw new HttpException(result.message!, result.code!);
+            };
+        } catch (err) {
+            throw errorManager(err, AccountService.name);
+        }
+    }
+
+    async getPublicInfo(username: string): Promise<PublicAccountDto> {
+        try {
+            const result = await firstValueFrom(
+                this.accountClient.send<SuccessDto<PublicAccountDto>>(
+                    { cmd: 'get_public_account' },
+                    { username }
+                ).pipe(withRetry())
+            );
+
+            if(!result.success) {
+                throw new HttpException(result.message!, result.code!);
+            };
+
+            return result.data;
+        } catch (err) {
+            throw errorManager(err, AccountService.name);
+        }
     }
 }

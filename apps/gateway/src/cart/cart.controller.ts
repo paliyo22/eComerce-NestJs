@@ -16,25 +16,23 @@ export class CartController {
     @Get()
     async getCart(
         @User() data: JwtPayload,
-        @Query('cartId', new ParseUUIDPipe({ optional: true })) cartId?: string
     ): Promise<CartOutputDto>{
         if(getRoleGroup(data.role) === ERole.Admin)
             throw new ForbiddenException(`Admin accounts can't make purchases`);
         
-        return this.cartService.getCart(data.accountId, cartId);
+        return this.cartService.getCart(data.accountId);
     }
     
     @Post()
     @HttpCode(201)
     async addProductToCart(
         @User() data: JwtPayload, 
-        @Body() newProduct: AddProductToCartDto,
-        @Query('cartId', new ParseUUIDPipe({ optional: true })) cartId?: string
+        @Body() newProduct: AddProductToCartDto
     ): Promise<void>{
         if(getRoleGroup(data.role) === ERole.Admin)
             throw new ForbiddenException(`Admin accounts can't make purchases`);
 
-        await this.cartService.addToCart(data.accountId, newProduct, cartId);
+        await this.cartService.addToCart(data.accountId, newProduct);
     }
     
     @Delete()
@@ -49,7 +47,7 @@ export class CartController {
     @HttpCode(204)
     async setAmount(
         @User('accountId') accountId: string,
-        @Query('amount', ParseIntPipe) amount: number,
+        @Body('amount', ParseIntPipe) amount: number,
         @Param('cartProductId', ParseUUIDPipe) cartProductId: string
     ): Promise<void>{
         await this.cartService.setAmount(accountId, cartProductId, amount);

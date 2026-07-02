@@ -7,7 +7,8 @@ export class CartOutputDto {
     created: Date;
     updated: Date;
     products: {
-        id: string;
+        cartProductId: string;
+        productId: string;
         title: string;
         price: number;
         amount: number;
@@ -22,7 +23,8 @@ export class CartOutputDto {
             const aux = cart.cartProducts.find((c) => p.id === c.productId);
             if(!aux) return null;
             return {
-                id: p.id,
+                cartProductId: aux.id, 
+                productId: p.id,
                 title: p.title,
                 price: p.price,
                 amount: aux.amount,

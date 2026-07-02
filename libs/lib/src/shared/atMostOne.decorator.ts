@@ -3,7 +3,7 @@ import { registerDecorator, ValidationArguments } from "class-validator";
 export function AtMostOne(...fields: string[]) {
   return function (constructor: Function) {
     registerDecorator({
-      name: 'exactlyOne',
+      name: 'atMostOne',
       target: constructor,
       propertyName: fields.join('|'),
       validator: {
@@ -13,7 +13,7 @@ export function AtMostOne(...fields: string[]) {
           return present.length <= 1;
         },
         defaultMessage() {
-          return `At least one of [${fields.join(', ')}] must be provided`;
+          return `At most one of [${fields.join(', ')}] must be provided`;
         }
       }
     });

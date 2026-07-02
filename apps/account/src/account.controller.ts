@@ -3,7 +3,9 @@ import { AccountService } from './account.service';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { SuccessDto, PartialAccountDto, AddressDto, CreateAddressDto, 
   CreateStoreDto, StoreDto, AccountDto, AccountOutputDto, PartialAccountOutputDto, 
-  CreateAccountDto, UpdateAccountDto, WithdrawalDto, TransactionDto } from '@app/lib';
+  CreateAccountDto, UpdateAccountDto, WithdrawalDto, TransactionDto, 
+  IncomeDto} from '@app/lib';
+import { PublicAccountDto } from '@app/lib/dtos/api/account/publicAccountDto';
 
 @Controller()
 export class AccountController {
@@ -98,6 +100,11 @@ export class AccountController {
     return this.accountService.getWithdrawals(data.accountId);
   }
 
+  @MessagePattern({ cmd: 'get_income_list' })
+  async getIncomes(@Payload() data: { accountId: string }): Promise<SuccessDto<IncomeDto[]>> {
+    return this.accountService.getIncomes(data.accountId);
+  }
+
   @MessagePattern({ cmd: 'withdraw' })
   async withdraw(@Payload() data: { accountId: string, amount: number, token: TransactionDto }): Promise<SuccessDto<WithdrawalDto>> {
     const result = await this.accountService.check(data.token);
@@ -109,6 +116,20 @@ export class AccountController {
     return this.accountService.withdraw(data.accountId, data.amount, data.token);
   }
 
+  @MessagePattern({ cmd: 'get_public_account' })
+  async getPublicAccount(@Payload() data:{ username: string }): Promise<SuccessDto<PublicAccountDto>> {
+    return this.accountService.getPublicAccount(data.username);
+  }
+
+  @MessagePattern({ cmd: 'search_public_account' })
+  async publicSearch(@Payload() data:{contains: string, limit?: number}): Promise<SuccessDto<string[]>> {
+    return this.accountService.publicSearch(data.contains, data.limit);
+  }
+
+  @MessagePattern({ cmd: 'change_cbu' })
+  async changeCbu(@Payload() data:{ accountId: string, password: string, newCBU: string }): Promise<SuccessDto<void>> {
+    return this.accountService.changeCbu(data.accountId, data.password, data.newCBU);
+  }
   //------------------ ADMIN FUNCTIONS -------------------------------
   @MessagePattern({ cmd: 'get_active_list' })
   async getAccountList(@Payload() data:{adminId: string, offset?: number, limit?: number}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
@@ -175,7 +196,7 @@ export class AccountController {
 
   // se invoca en: Order/setOrder
   @MessagePattern({ cmd: 'add_to_account_balance' })
-  async addToBalance(@Payload() data:{ accounts: {accountId: string, balance: number}[], token: TransactionDto }): Promise<void>{
+  async addToBalance(@Payload() data:{ accounts: {accountId: string, balance: number, orderId: string}[], token: TransactionDto }): Promise<void>{
     if(data.token){
       const result = await this.accountService.check(data.token);
       if(result === 'failed')
@@ -185,5 +206,18 @@ export class AccountController {
         return;
     };
     return this.accountService.addToBalance(data.accounts, data.token);
+  }
+
+
+
+
+
+
+
+
+  //---------------------- Initial load for TESTING ---------------------------------
+  @MessagePattern({ cmd: 'testing_load' })
+  async loadDefaultAccounts(@Payload() data:{ accounts: CreateAccountDto[] }): Promise<SuccessDto<string[]>> {
+    return this.accountService.loadDefaultAccounts(data.accounts);
   }
 }

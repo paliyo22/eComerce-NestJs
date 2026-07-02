@@ -5,7 +5,8 @@ import { PartialProductDto, ProductDto, CreateProductDto, UpdateProductDto,
   EProductCategory, ProductOrderDto, EAccountStatus, UnavailableProductsDto, 
   withRetry, errorMessage, badRequest, unauthorized, banned, deleted, notFound, 
   notAvailable, AccountDto, AccountReviewDto, ProductReviewDto, PartialAccountDto, 
-  TransactionDto, EStateStatus} from '@app/lib';
+  TransactionDto, EStateStatus, uuidTransformer,
+  CreateAccountDto} from '@app/lib';
 import { In, Repository } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, from, retry, timeout } from 'rxjs';
@@ -61,7 +62,7 @@ export class ProductService {
       this.cartClient.emit('delete.products.from.carts', { productIds })
       .pipe(retry(1), timeout(100))
     ).catch(() => {
-      this.logger.error('Fallo en la comunicacion en el metodo "deleteFromCarts"');
+      this.logger.error('Failed to emit the message from the method "deleteFromCarts"');
     });
   }
 
@@ -98,8 +99,22 @@ export class ProductService {
     });
   }
 
+  private async deleteCache(cache: 'product' | 'featured' | 'myProducts', id?: string){
+    switch(cache){
+      case 'featured':
+        await this.redis.del(`featured:10`).catch(() => {});
+        break;
+      case 'myProducts':
+        await this.redis.del(`myProducts:${id}`).catch(() => {});
+        break;
+      case 'product':
+        await this.redis.del(`product:${id}`).catch(() => {});
+        break;
+    }
+  }
+
   async check(token: TransactionDto): Promise<'completed' | 'failed' | 'try'> {
-    const timeout = token.isInternal ? (this.config.get<number>('MESSAGE_TIMEOUT') + 1000) : 3000;
+    const timeout = token.isInternal ? (this.config.get<number>('MESSAGE_TIMEOUT') + 1000) : 3100;
     const cacheKey = `transaction:${token.uuid}`;
     const cached = await firstValueFrom(from(this.redis.get(cacheKey)).pipe(withRetry(3))).catch(() => undefined);
     const lock = `lock:${token.uuid}`;
@@ -125,10 +140,14 @@ export class ProductService {
   }
 
   async getTotal(category?: EProductCategory): Promise<SuccessDto<number>> {
+    let lockKey: string;
+    const token = uuidv4();
     try {
       let total = 0;
+      let cacheKey: string; 
+       
       if(!category){
-        const cacheKey = `total`;
+        cacheKey = `total`;
         const cached = await this.redis.get(cacheKey).catch(() => {});
         if (cached) {
           return { 
@@ -137,15 +156,18 @@ export class ProductService {
           };
         }
 
+        lockKey = 'lock:total';
+        const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+        if (!lock) return;
+
         total = await this.productRepository
           .createQueryBuilder('p')
           .innerJoin('p.meta', 'm')
           .where('m.deletedBy IS NULL')
+          .andWhere('p.stock > 0')
           .getCount();
-        
-        await this.redis.set(cacheKey, total, 'EX', 30).catch(() => {});
       }else{
-        const cacheKey = `total:${category}`;
+        cacheKey = `total:${category}`;
         const cached = await this.redis.get(cacheKey).catch(() => {});
         if (cached) {
           return { 
@@ -153,6 +175,11 @@ export class ProductService {
             data: Number(cached)
           };
         }
+
+        lockKey = `lock:total:${category}`;
+        const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+        if (!lock) return;
+
         total = await this.productRepository
           .createQueryBuilder('p')
           .innerJoin('p.meta', 'm')
@@ -160,26 +187,26 @@ export class ProductService {
           .innerJoin('p.category', 'c')
           .andWhere('c.slug = :category', { category })
           .getCount();
-        
-        await this.redis.set(cacheKey, total, 'EX', 30).catch(() => {});
       }
       
-      if(!total){
-        return notFound;
-      };
+      await this.redis.set(cacheKey, total, 'EX', 30).catch(() => {});
+      await this.releaseLock(lockKey, token).catch(() => {});
       
       return {
         success: true,
         data: total
       };
     } catch (err: any) {
+      await this.releaseLock(lockKey, token).catch(() => {});
       return errorMessage(ProductService.name, err);
     }
   }
 
-  async getMyProductList(accountId: string, limit?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getMyProductList(accountId: string, limit = 50): Promise<SuccessDto<PartialProductDto[]>> {
+    const lockKey = `lock:my_products:${accountId}`;
+    const token = uuidv4();
     try {
-      const cacheKey = `my_products:${accountId}`;
+      const cacheKey = `myProducts:${accountId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
@@ -188,15 +215,17 @@ export class ProductService {
         };
       }
 
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
       const products = await this.productRepository
         .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
-        .where('m.accountId = :accountId', { accountId })
+        .where('m.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .orderBy('m.created', 'DESC')
-        .take(limit ?? 50)
+        .take(limit)
         .getMany();
 
       const data = products.map((p) => new PartialProductDto(p));
@@ -210,12 +239,16 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
-  async getProductList(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getProductList(limit = 20, offset = 0): Promise<SuccessDto<PartialProductDto[]>> {
+    const lockKey = `lock:products:${limit}:${offset}`;
+    const token = uuidv4();
     try {
-      const cacheKey = `products:${limit ?? 20}:${offset ?? 0}`;
+      const cacheKey = `products:${limit}:${offset}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
@@ -224,22 +257,20 @@ export class ProductService {
         };
       }
 
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
       const products = await this.productRepository
         .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
         .where('m.deletedBy IS NULL')
         .andWhere('p.stock > 0')
         .orderBy('p.ratingAvg', 'DESC')
-        .take(limit ?? 20)
-        .skip(offset ?? 0)
+        .take(limit)
+        .skip(offset)
         .getMany();
-
-      if(!products.length){
-        return errorMessage(ProductService.name);
-      };
 
       const data = products.map((p) => new PartialProductDto(p));
       await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
@@ -250,12 +281,16 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
-  async getProductByCategory(category: EProductCategory, limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getProductByCategory(category: EProductCategory, limit = 20, offset = 0): Promise<SuccessDto<PartialProductDto[]>> {
+    const lockKey = `lock:category:${category}:${limit}:${offset}`;
+    const token = uuidv4();
     try {
-      const cacheKey = `category:${category}:${limit ?? 20}:${offset ?? 0}`;
+      const cacheKey = `category:${category}:${limit}:${offset}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
@@ -263,10 +298,13 @@ export class ProductService {
           data: JSON.parse(cached) as PartialProductDto[] 
         };
       }
-
+      
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
+      
       const products = await this.productRepository
         .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
@@ -274,13 +312,9 @@ export class ProductService {
         .andWhere('c.slug = :category', { category })
         .andWhere('p.stock > 0')
         .orderBy('p.ratingAvg', 'DESC')
-        .take(limit ?? 20) 
-        .skip(offset ?? 0)
+        .take(limit) 
+        .skip(offset)
         .getMany();
-
-      if(!products.length) {
-        return notFound;
-      }
 
       const data = products.map((p) => new PartialProductDto(p));
       await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
@@ -291,12 +325,16 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
-  async getFeatured(limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getFeatured(limit = 10): Promise<SuccessDto<PartialProductDto[]>> {
+    const lockKey = `lock:featured:${limit}`;
+    const token = uuidv4();
     try {
-      const cacheKey = `featured:${limit ?? 10}:${offset ?? 0}`;
+      const cacheKey = `featured:${limit}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       if (cached) {
         return { 
@@ -304,23 +342,21 @@ export class ProductService {
           data: JSON.parse(cached) as PartialProductDto[] 
         };
       };
-
+  
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
+  
       const products = await this.productRepository
         .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
         .where('m.deletedBy IS NULL')
         .andWhere('p.stock > 0')
         .orderBy('p.ratingAvg', 'DESC')
-        .take(limit ?? 10)
-        .skip(offset ?? 0)
+        .take(limit)
         .getMany();
-
-      if(!products.length){
-        return errorMessage(ProductService.name);
-      }
 
       const data = products.map((p) => new PartialProductDto(p));
       await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
@@ -331,32 +367,40 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
-  async searchProduct(contains: string, limit?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async searchProduct(contains: string, limit = 50): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const normalized = contains.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
 
       if(!normalized){
-        return badRequest;
+        return {
+          success: true,
+          data: []
+        };
       }
 
       const products = await this.productRepository
         .createQueryBuilder('p')
-        .innerJoin('p.meta', 'm')
+        .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
+        .addSelect(
+          'MATCH(p.title, p.description) AGAINST (:text IN BOOLEAN MODE)',
+          'relevance'
+        )
         .where('m.deletedBy IS NULL')
         .andWhere(
           'MATCH(p.title, p.description) AGAINST (:text IN BOOLEAN MODE)',
           { text: `*${normalized}*` }
-        ).orderBy(
-          'MATCH(p.title, p.description) AGAINST (:text IN BOOLEAN MODE)',
-          'DESC'
-        ).setParameter('text', `*${normalized}*`)
-        .take(limit ?? 50)
+        )
+        .orderBy('relevance', 'DESC')
+        .setParameter('text', `*${normalized}*`)
+        .take(limit)
         .getMany();
 
       if (!products.length) {
@@ -372,7 +416,7 @@ export class ProductService {
             { text: `%${normalized}%` }
           )
           .orderBy('p.title', 'ASC')
-          .take(limit ?? 50)
+          .take(limit)
           .getMany();
           
         return {
@@ -391,61 +435,6 @@ export class ProductService {
     }
   }
 
-  async getAccountProducts (username: string): Promise<SuccessDto<PartialProductDto[]>> {
-    try {
-      const result = await firstValueFrom(
-        this.accountClient.send<SuccessDto<string>>(
-          {cmd: 'get_id'},
-          { username }
-        )
-      );
-
-      if(!result.success){
-        return {
-          success: false,
-          code: result.code,
-          message: result.message
-        }
-      }
-
-      const cacheKey = `products:${result.data}`;
-      const cached = await this.redis.get(cacheKey).catch(() => {});
-      if (cached) {
-        return { 
-          success: true, 
-          data: JSON.parse(cached) as PartialProductDto[] 
-        };
-      }
-      const products = await this.productRepository
-        .createQueryBuilder('p')
-        .innerJoinAndSelect('p.meta', 'm')
-        .innerJoinAndSelect('p.category', 'c')
-        .leftJoinAndSelect('p.tags', 't')
-        .leftJoinAndSelect('p.images', 'i')
-        .where('m.accountId = :accountId', { accountId: result.data })
-        .andWhere('m.deletedBy IS NULL OR m.deletedBy = m.accountId')
-        .getMany();
-
-      if (!products.length) {
-        return { 
-          success: true, 
-          data: []
-        };
-      }
-
-      const data = products.map((p) => new PartialProductDto(p));
-      if(data.length){
-        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
-      }
-      return { 
-        success: true, 
-        data
-      };
-    } catch (err: any) {
-      return errorMessage(ProductService.name, err);
-    }
-  }
-
   async createProduct(accountId: string, product: CreateProductDto): Promise<SuccessDto<ProductDto | string>> {
     try {
       const category = await this.categoryRepository
@@ -459,7 +448,7 @@ export class ProductService {
 
       let saveId: string | undefined;
       await this.productRepository.manager.transaction(async manager => {
-        const saved = await manager.save(Product, {
+        const saved = manager.create(Product, {
           title: product.title,
           description: product.description,
           price: product.price,
@@ -472,9 +461,10 @@ export class ProductService {
           shippingInfo: product.shippingInfo ?? null,
           thumbnail: product.thumbnail ?? null,
           categoryId: category.id
-        });
+        }); 
+        await manager.save(saved, { reload: false });
         saveId = saved.id;
-        await manager.save(MetaP, { product: {id: saved.id}, accountId: accountId })
+        await manager.save(MetaP, { productId: saveId, accountId: accountId })
 
         if (product.tags) {
           const normalizedTitles = product.tags.map(t => t.toLowerCase().trim())
@@ -500,10 +490,9 @@ export class ProductService {
               .insert()
               .into('prod_x_tag')
               .values(tags.map(t => ({
-                product_id: () => `UUID_TO_BIN(:productId)`,
+                product_id: uuidTransformer.to(saveId),
                 tag_id: t.id
               })))
-              .setParameter('productId', saved.id)
               .execute();
           }
         }
@@ -512,7 +501,7 @@ export class ProductService {
           const normalizedImages = product.images.map(t => t.toLowerCase().trim())
             .filter(t => t.length > 0);
           
-          await manager.save(Image, normalizedImages.map(image => ({ productId: saved.id, link: image})));
+          await manager.save(Image, normalizedImages.map(image => ({ productId: saveId, link: image})));
         }
       }); 
       
@@ -538,7 +527,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -557,10 +546,11 @@ export class ProductService {
         }
       }  
       
-      await this.productRepository.update(productId, { discountPercentage: Math.round(discount) });
+      await this.productRepository.update({id: productId}, { discountPercentage: Math.round(discount) });
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
+      this.deleteCache('myProducts', accountId);
 
       return {
         success: true
@@ -578,7 +568,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -597,10 +587,11 @@ export class ProductService {
         }
       }  
 
-      await this.productRepository.update(productId, { price });
+      await this.productRepository.update({id: productId}, { price });
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
+      this.deleteCache('myProducts', accountId);
 
       return { 
         success: true
@@ -619,7 +610,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -638,10 +629,11 @@ export class ProductService {
         }
       }
 
-      await this.productRepository.update(productId, { stock });
+      await this.productRepository.update({id: productId}, { stock });
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
+      this.deleteCache('myProducts', accountId);
 
       return {
         success: true
@@ -652,6 +644,8 @@ export class ProductService {
   }
 
   async getProductById(productId: string): Promise<SuccessDto<ProductDto>> {
+    const lockKey = `lock:product:${productId}`;
+    const token = uuidv4();
     try {
       const cacheKey = `product:${productId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
@@ -661,7 +655,10 @@ export class ProductService {
           data: JSON.parse(cached) as ProductDto
         };
       }
-
+      
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
+      
       const product = await this.productRepository
         .createQueryBuilder('p')
         .innerJoinAndSelect('p.meta', 'm')
@@ -669,7 +666,7 @@ export class ProductService {
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
         .leftJoinAndSelect('p.reviews', 'r')
-        .where('p.id = :id', { id: productId })
+        .where('p.id = :id', { id: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -691,6 +688,7 @@ export class ProductService {
       );
 
       if(!accountList.success){ 
+        this.logger.warn('Error al encontrar la cuenta')
         return {
           success: accountList.success,
           code: accountList.code,
@@ -707,6 +705,8 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
@@ -715,7 +715,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(productId) })
         .getOne(); 
 
       if (!product) {
@@ -738,20 +738,21 @@ export class ProductService {
         await manager.createQueryBuilder()
           .update(Product)
           .set({ stock: 0 })
-          .where('id = :productId', { productId })
+          .where('id = :productId', { productId: uuidTransformer.to(productId) })
           .execute();
           
         await manager.createQueryBuilder()
           .update(MetaP)
           .set({ deletedBy: accountId, deleted: new Date() })
-          .where('productId = :productId', { productId })
+          .where('productId = :productId', { productId: uuidTransformer.to(productId) })
           .execute();
       });
       
       this.deleteFromCarts([productId]);
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
+      this.deleteCache('myProducts', accountId);
 
       return {
         success: true
@@ -766,7 +767,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(productId) })
         .getOne(); 
 
       if (!product) {
@@ -789,12 +790,12 @@ export class ProductService {
         .createQueryBuilder()
         .update(MetaP)
         .set({ deletedBy: null, deleted: null })
-        .where('productId = :productId', { productId })
+        .where('productId = :productId', { productId: uuidTransformer.to(productId) })
         .execute();
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
-  
+      this.deleteCache('product', productId);
+      this.deleteCache('myProducts', accountId);
+
       return {
         success: true
       }
@@ -811,7 +812,7 @@ export class ProductService {
         .leftJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
-        .where('p.id = :id', { id: productId })
+        .where('p.id = :id', { id: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -853,6 +854,12 @@ export class ProductService {
             .map(t => t.toLowerCase().trim())
             .filter(t => t.length > 0);
 
+          await manager.createQueryBuilder()
+            .delete()
+            .from('prod_x_tag')
+            .where('product_id = :productId', { productId: uuidTransformer.to(productId) })
+            .execute();
+
           if (normalizedTitles.length) {
             const existingTags = await manager.find(Tag, {
               where: { title: In(normalizedTitles) },
@@ -863,13 +870,22 @@ export class ProductService {
               tags = existingTags;
             } else {
               const existingTitles = existingTags.map(t => t.title);
-              const newTitles = normalizedTitles.filter(title => !existingTitles.includes(title));
+              const newTitles = normalizedTitles.filter(t => !existingTitles.includes(t));
               const createdTags = await manager.save(Tag, newTitles.map(title => ({ title })));
               tags = [...existingTags, ...createdTags];
             }
 
-            product.tags = tags;
+            await manager.createQueryBuilder()
+              .insert()
+              .into('prod_x_tag')
+              .values(tags.map(tag => ({
+                product_id: uuidTransformer.to(productId),
+                tag_id: tag.id,
+              })))
+              .execute();
           }
+
+          product.tags = undefined;
         }
 
         if (newProduct.images) {
@@ -877,18 +893,19 @@ export class ProductService {
             .map(t => t.toLowerCase().trim())
             .filter(t => t.length > 0);
 
-          if (normalizedImages.length) {
-            await manager.delete(Image, { product: { id: productId } });
+          await manager.delete(Image, { product: { id: productId } });
+          if (normalizedImages.length) {            
             await manager.save(Image, normalizedImages.map(link => ({ productId, link })));
-            product.images = undefined;
           }
+          product.images = undefined;
         }
 
         await manager.save(Product, product);
       });
 
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
+      this.deleteCache('myProducts', accountId);
 
       return this.getProductById(productId);
     } catch (err: any) {
@@ -900,6 +917,8 @@ export class ProductService {
   }
 
   async getAccountReviews(accountId: string): Promise<SuccessDto<AccountReviewDto[]>> {
+    const lockKey = `lock:myReviews:${accountId}`;
+    const token = uuidv4();
     try {
       const cacheKey = `myReviews:${accountId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
@@ -908,11 +927,15 @@ export class ProductService {
           success: true, 
           data: JSON.parse(cached) as AccountReviewDto[]
         };
-      }
+      } 
+      
+      const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
+      if (!lock) return;
+      
       const reviews = await this.reviewRepository
         .createQueryBuilder('r')
         .innerJoinAndSelect('r.product', 'p')
-        .where('r.accountId = :accountId', { accountId })
+        .where('r.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .orderBy('r.created', 'DESC')
         .getMany();
 
@@ -926,6 +949,8 @@ export class ProductService {
       };
     } catch (err: any) {
       return errorMessage(ProductService.name, err);
+    }finally{
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
 
@@ -934,7 +959,7 @@ export class ProductService {
       const exists = await this.productRepository
         .createQueryBuilder('p')
         .leftJoinAndSelect('p.meta', 'm')
-        .where('p.id = :productId', { productId: dto.productId })
+        .where('p.id = :productId', { productId: uuidTransformer.to(dto.productId) })
         .getOne();
 
       if (!exists) {
@@ -992,8 +1017,8 @@ export class ProductService {
       .createQueryBuilder()
       .delete()
       .from(Review)
-      .where('accountId = :accountId', { accountId })
-      .andWhere('productId = :productId', { productId })
+      .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+      .andWhere('productId = :productId', { productId: uuidTransformer.to(productId) })
       .execute();
 
       if (result.affected === 0) {
@@ -1034,14 +1059,7 @@ export class ProductService {
     } catch (err: any) {
       errorMessage(ProductService.name, err);
     } finally {
-      const luaScript = `
-        if redis.call("get", KEYS[1]) == ARGV[1] then
-          return redis.call("del", KEYS[1])
-        else
-          return 0
-        end
-      `;
-      await this.redis.eval(luaScript, 1, lockKey, token).catch(() => {});
+      await this.releaseLock(lockKey, token).catch(() => {});
     }
   }
   
@@ -1065,7 +1083,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .innerJoinAndSelect('p.meta', 'm')
-        .where('p.id = :id', { id: productId })
+        .where('p.id = :id', { id: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -1076,11 +1094,11 @@ export class ProductService {
         .createQueryBuilder()
         .update(MetaP)
         .set({ deletedBy: adminId, deleted: new Date() })
-        .where('productId = :productId', { productId })
+        .where('productId = :productId', { productId: uuidTransformer.to(productId) })
         .execute();
       
-      const cacheKey = `product:${productId}`;
-      await this.redis.del(cacheKey).catch(() => {});
+      this.deleteCache('product', productId);
+      this.deleteCache('featured');
 
       this.deleteFromCarts([productId]);
 
@@ -1112,7 +1130,7 @@ export class ProductService {
       const product = await this.productRepository
         .createQueryBuilder('p')
         .innerJoinAndSelect('p.meta', 'm')
-        .where('p.id = :id', { id: productId })
+        .where('p.id = :id', { id: uuidTransformer.to(productId) })
         .getOne();
 
       if (!product) {
@@ -1123,8 +1141,10 @@ export class ProductService {
         .createQueryBuilder()
         .update(MetaP)
         .set({ deletedBy: null, deleted: null })
-        .where('productId = :productId', { productId })
+        .where('productId = :productId', { productId: uuidTransformer.to(productId) })
         .execute();
+
+      this.deleteCache('product', productId);
       
       return {
         success: true
@@ -1136,13 +1156,14 @@ export class ProductService {
 
   async getProductsFromList(productIds: string[]): Promise<SuccessDto<PartialProductDto[]>> {
     try {
+      const ids = productIds.map((p) => uuidTransformer.to(p));
       const products = await this.productRepository
         .createQueryBuilder('p')
         .innerJoinAndSelect('p.meta', 'm')
         .innerJoinAndSelect('p.category', 'c')
         .leftJoinAndSelect('p.tags', 't')
         .leftJoinAndSelect('p.images', 'i')
-        .where('p.id IN (:...id)', { id: productIds })
+        .where('p.id IN (:...ids)', { ids })
         .andWhere('m.deleted IS NULL')
         .getMany();
 
@@ -1170,28 +1191,29 @@ export class ProductService {
       const productIds = await this.productRepository.manager.transaction(async manager => {        
         const products = await manager.createQueryBuilder(Product, 'p')
           .innerJoinAndSelect('p.meta', 'm')
-          .where('m.accountId = :accountId', { accountId })
+          .where('m.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
           .getMany();
         
         const productIds = products.map((p) => p.id);
+        const ids = products.map((p) => uuidTransformer.to(p.id));
         
         if(productIds.length){
           await manager.createQueryBuilder()
             .update(Product)
             .set({ stock: 0 })
-            .where('id IN (:...ids)', { ids: productIds})
+            .where('id IN (:...ids)', { ids })
             .execute();
           
           await manager.createQueryBuilder()
             .update(MetaP)
             .set({ deletedBy: accountId, deleted: new Date() })
-            .where('accountId = :accountId', { accountId })
+            .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
             .execute();
 
           await manager.createQueryBuilder()
             .delete()
             .from(Review)
-            .where('accountId = :accountId', { accountId })
+            .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
             .execute();
         }
 
@@ -1206,7 +1228,7 @@ export class ProductService {
     }
   }
 
-  async getBannedList(adminId: string, limit?: number, offset?: number): Promise<SuccessDto<PartialProductDto[]>> {
+  async getBannedList(adminId: string, limit = 50, offset = 0): Promise<SuccessDto<PartialProductDto[]>> {
     try {
       const result = await firstValueFrom(
         this.accountClient.send<SuccessDto<void>>(
@@ -1232,8 +1254,8 @@ export class ProductService {
         .where('m.deletedBy IS NOT NULL')
         .andWhere('m.deletedBy != m.accountId')
         .orderBy('p.ratingAvg', 'DESC')
-        .take(limit ?? 50)
-        .skip(offset ?? 0)
+        .take(limit)
+        .skip(offset)
         .getMany();
 
       return {
@@ -1250,7 +1272,7 @@ export class ProductService {
     const unavailable: UnavailableProductsDto[] = [];
     const data: ProductOrderDto[] = [];
     try {
-      const ids = products.map((p) => p.productId);
+      const ids = products.map((p) => uuidTransformer.to(p.productId));
 
       const productList = await this.productRepository
         .createQueryBuilder('p')
@@ -1334,7 +1356,7 @@ export class ProductService {
       const result = await this.productRepository
         .createQueryBuilder('p')
         .innerJoinAndSelect('p.meta', 'm')
-        .where('p.id = :id', { id: productId})
+        .where('p.id = :id', { id: uuidTransformer.to(productId) })
         .getOne();
       
       if(!result) return { success: false };
@@ -1362,7 +1384,7 @@ export class ProductService {
             await this.productRepository.manager.transaction(async manager => {
               const product = await manager.createQueryBuilder(Product, 'p')
                 .innerJoinAndSelect('p.meta', 'm')
-                .where('p.id = :id', { id: p.productId})
+                .where('p.id = :id', { id: uuidTransformer.to(p.productId) })
                 .getOne();
 
               if(!product.meta.deletedBy){
@@ -1394,5 +1416,249 @@ export class ProductService {
     const lock = `lock:${token.uuid}`;
     await this.releaseLock(lock, token.uuid);
     await this.redis.publish(`transaction:done:${token.uuid}`, token.status).catch(() => {});
+  }
+
+  async getAccountProducts (id: string): Promise<SuccessDto<PartialProductDto[]>> {
+    try {
+      const cacheKey = `accountProducts:${id}`;
+      const cached = await this.redis.get(cacheKey).catch(() => {});
+      if (cached) {
+        return { 
+          success: true, 
+          data: JSON.parse(cached) as PartialProductDto[] 
+        };
+      }
+      const products = await this.productRepository
+        .createQueryBuilder('p')
+        .innerJoinAndSelect('p.meta', 'm')
+        .innerJoinAndSelect('p.category', 'c')
+        .leftJoinAndSelect('p.tags', 't')
+        .leftJoinAndSelect('p.images', 'i')
+        .where('m.accountId = :accountId', { accountId: uuidTransformer.to(id) })
+        .andWhere('m.deletedBy IS NULL OR m.deletedBy = m.accountId')
+        .getMany();
+
+      if (!products.length) {
+        return { 
+          success: true, 
+          data: []
+        };
+      }
+
+      const data = products.map((p) => new PartialProductDto(p));
+      if(data.length){
+        await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
+      }
+      return { 
+        success: true, 
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(ProductService.name, err);
+    }
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+  //---------------------- Initial load for TESTING ---------------------------------
+  async getCategories(): Promise<SuccessDto<string[] | any>> {
+    try {
+      const categories = await this.categoryRepository.createQueryBuilder('c')
+        .getMany();
+
+      return {
+        success: true,
+        data: categories.map((a) => a.slug)
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        code: 500,
+        data: err
+      }
+    }
+  }
+
+  private async createDefaultAccounts(): Promise<SuccessDto<string[]>>{
+    try {
+      const accounts: CreateAccountDto[] = [];
+      accounts.push({
+        email: "seller@test.com",
+        username: "testseller",
+        password: "Test1234!", 
+        userAccount: {
+          firstname: "María", 
+          lastname: "García",
+          phone: "+54911234567"
+        }
+      });
+      accounts.push({
+        email: "business@test.com",
+        username: "testbusiness",
+        password: "123456",
+        businessAccount: {
+          title: "Mi Negocio SRL",
+          bio: "Venta de productos varios",
+          phone: "+5491187654321"
+        }
+      });
+      
+      return firstValueFrom(
+        this.accountClient.send<SuccessDto<string[]>>(
+          { cmd: 'testing_load' },
+          { accounts }
+        )
+      );
+    } catch (err: any) {
+      return {
+        success: false
+      };
+    };
+  }
+
+  private async insertProduct(product: any, accountId: string): Promise<void> {
+    const productUuid = uuidv4();
+
+    // 1. Categoría
+    await this.productRepository.query(
+      "INSERT IGNORE INTO category (slug) VALUES (?)",
+      [product.category]
+    );
+    const [categoryRow] = await this.productRepository.query(
+      "SELECT id FROM category WHERE slug = ?",
+      [product.category]
+    );
+
+    // 2. Producto
+    await this.productRepository.query(
+      `INSERT INTO product (
+          id, title, description, price, discount_percentage,
+          stock, brand, weight, warranty_info, shipping_info,
+          rating_avg, category_id, thumbnail
+      ) VALUES (
+          UUID_TO_BIN(?), ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?
+      )`,
+      [
+        productUuid,
+        product.title,
+        product.description,
+        product.price,
+        Math.round(product.discountPercentage),
+        product.stock,
+        product.brand ?? null,
+        product.weight,
+        product.warrantyInformation ?? null,
+        product.shippingInformation ?? null,
+        product.rating,
+        categoryRow.id,
+        product.thumbnail ?? null,
+      ]
+    );
+
+    // 3. Meta
+    await this.productRepository.query(
+      `INSERT INTO meta (account_id, product_id)
+      VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?))`,
+      [accountId, productUuid]
+    );
+
+    // 4. Tags
+    for (const tagTitle of product.tags) {
+      await this.productRepository.query(
+        "INSERT IGNORE INTO tag (title) VALUES (?)",
+        [tagTitle]
+      );
+      const [tagRow] = await this.productRepository.query(
+        "SELECT id FROM tag WHERE title = ?",
+        [tagTitle]
+      );
+      await this.productRepository.query(
+        `INSERT IGNORE INTO prod_x_tag (product_id, tag_id)
+        VALUES (UUID_TO_BIN(?), ?)`,
+        [productUuid, tagRow.id]
+      );
+    }
+
+    // 5. Imágenes
+    for (const link of product.images) {
+      await this.productRepository.query(
+        `INSERT INTO image (product_id, link)
+        VALUES (UUID_TO_BIN(?), ?)`,
+        [productUuid, link]
+      );
+    }
+  }
+
+  async seedProducts(products: any[]): Promise<SuccessDto<void>> {
+    const errores: any[] = [];
+    const result = await this.createDefaultAccounts();
+    if(!result.success){
+      return {
+        success: false,
+        code: 500,
+        message: 'salio mal la creacion de usuarios.'
+      };
+    };
+    const admin = await this.createDefaultAdmin();
+    if(!admin.success){
+      return {
+        success: false,
+        code: 500,
+        message: 'salio mal la creacion del admin.'
+      };
+    }
+    const accounts = result.data!;
+    for (const product of products) {
+      const id = accounts[Math.floor(Math.random() * accounts.length)];
+      try {
+        await this.insertProduct(product, id);
+      } catch (err) {
+        errores.push(product);
+      };
+    };
+    if(errores.length){
+      this.logger.fatal(errores);
+    }
+
+    return{ success: true };
+  }
+
+  private async createDefaultAdmin(): Promise<SuccessDto<void>> {
+    try {
+      const accounts: CreateAccountDto[] = [{
+        email: "palo@test.com",
+        username: "palo",
+        password: "palo", 
+        adminAccount: {
+          publicName: 'palito'
+        }
+      }];
+
+      await firstValueFrom(
+        this.accountClient.send<SuccessDto<string[]>>(
+          { cmd: 'testing_load' },
+          { accounts }
+        )
+      );
+      return {
+        success: true
+      }
+    } catch (err: any) {
+      return {
+        success: false
+      };
+    };
   }
 }

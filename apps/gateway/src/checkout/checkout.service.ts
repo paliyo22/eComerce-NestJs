@@ -1,7 +1,7 @@
 import { CreateDraftOrderDto, DraftOrder, DraftOrderOutputDto, 
     EStateStatus, SuccessDto, TransactionDto, UnavailableProductsDto, withRetry } from "@app/lib";
 import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
-import { ClientProxy } from "@nestjs/microservices";
+import { ClientProxy, RpcException } from "@nestjs/microservices";
 import { errorManager } from '../helpers/errorManager';
 import { firstValueFrom, from } from "rxjs";
 import { MercadoPagoConfig, Payment, Preference } from "mercadopago";
@@ -53,9 +53,8 @@ export class CheckoutService {
                     email: draftOrder.data.contactEmail
                 },
                 back_urls: {
-                    success: `${this.config.get<string>('FRONT_URL')}/checkout/success`,
-                    failure: `${this.config.get<string>('FRONT_URL')}/checkout/failure`,
-                    pending: `${this.config.get<string>('FRONT_URL')}/checkout/pending`,
+                    success: `${this.config.get<string>('FRONT_URL')}/order/details?doi=${draftOrderId}`,
+                    failure: `${this.config.get<string>('FRONT_URL')}/order/failure`
                 },
                 notification_url: `${this.config.get<string>('BACK_URL')}/checkout/webhook/mp`,
                 external_reference: draftOrder.data.id,
@@ -139,29 +138,19 @@ export class CheckoutService {
         
     }
 
-    async freeOrderResult(draftOrderId: string, accountId: string, success: boolean): Promise<void> {
+    async freeOrderResult(draftOrderId: string, accountId: string): Promise<void> {
         const token = new TransactionDto(uuidv4(), false, EStateStatus.Pending);
         const cacheKey = `transaction:${token.uuid}`;
         try {
             await firstValueFrom( from(this.redis.set(cacheKey, JSON.stringify(token), 'EX', 120))
                 .pipe(withRetry()))
                 .catch(() => { throw new HttpException('INTERNAL_ERROR', 500) });
-            let result: SuccessDto<void>;
-            if(success){
-                result = await firstValueFrom(
-                    this.orderClient.send<SuccessDto<void>>(
-                        { cmd: 'create_order' },
-                        { draftOrderId, accountId, token }
-                    ).pipe(withRetry())
-                );
-            }else {
-                result = await firstValueFrom(
-                    this.orderClient.send<SuccessDto<void>>(
-                        { cmd: 'cancel_draft_order' },
-                        { draftOrderId, accountId, token }
-                    ).pipe(withRetry())
-                );
-            }
+            const result = await firstValueFrom(
+                this.orderClient.send<SuccessDto<void>>(
+                    { cmd: 'create_order' },
+                    { draftOrderId, accountId, token }
+                ).pipe(withRetry())
+            );
 
             if(!result.success){
                 throw new HttpException(result.message!, result.code!);
@@ -176,9 +165,48 @@ export class CheckoutService {
                 if(transaction.status === EStateStatus.Failed){
                     throw errorManager(err, CheckoutService.name);
                 };
-                throw errorManager(err, CheckoutService.name, token.uuid);
+                throw new HttpException({
+                    message: 'TRANSACTION_PENDING',
+                    data: token.uuid
+                }, 504);
             };
-            throw errorManager(err, CheckoutService.name, token.uuid);
+            throw errorManager(err, CheckoutService.name);
+        }
+    }
+
+    async cancelDraftOrder(draftOrderId: string, accountId: string): Promise<void>{
+        const token = new TransactionDto(uuidv4(), false, EStateStatus.Pending);
+        const cacheKey = `transaction:${token.uuid}`;
+        try{
+            await firstValueFrom( from(this.redis.set(cacheKey, JSON.stringify(token), 'EX', 120))
+                .pipe(withRetry()))
+                .catch(() => { throw new HttpException('INTERNAL_ERROR', 500) });
+            const result = await firstValueFrom(
+                this.orderClient.send<SuccessDto<void>>(
+                    { cmd: 'cancel_draft_order' },
+                    { draftOrderId, accountId, token }
+                ).pipe(withRetry())
+            );
+
+            if(!result.success){
+                throw new HttpException(result.message!, result.code!);
+            };
+        }catch(err: any){
+            const cache = await this.redis.get(cacheKey).catch(() => undefined);
+            if(cache){
+                const transaction = JSON.parse(cache) as TransactionDto;
+                if(transaction.status === EStateStatus.Completed){
+                    return;
+                };
+                if(transaction.status === EStateStatus.Failed){
+                    throw errorManager(err, CheckoutService.name);
+                };
+                throw new HttpException({
+                    message: 'TRANSACTION_PENDING',
+                    data: token.uuid
+                }, 504);
+            };
+            throw errorManager(err, CheckoutService.name);
         }
     }
     

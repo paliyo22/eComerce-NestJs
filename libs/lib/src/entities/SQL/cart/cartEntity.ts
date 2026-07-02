@@ -1,6 +1,6 @@
 import { BinaryUuidColumn } from "../../../shared/binaryUuid.decorator";
 import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator";
-import { BeforeInsert, CreateDateColumn, Entity, OneToMany, Column } from "typeorm";
+import { BeforeInsert, CreateDateColumn, Entity, OneToMany, UpdateDateColumn } from "typeorm";
 import { v4 as uuid } from 'uuid';
 import { CartProduct } from "./cartProductEntity";
 
@@ -23,7 +23,7 @@ export class Cart {
   @CreateDateColumn({ type: 'datetime' })
   created: Date;
 
-  @Column({ type: 'timestamp' })
+  @UpdateDateColumn({ type: 'timestamp' })
   updated: Date;
 
   @OneToMany(() => CartProduct, (cp) => cp.cart, { cascade: false })

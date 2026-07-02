@@ -4,6 +4,7 @@ import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { CreateReviewDto, SuccessDto, CreateProductDto, PartialProductDto, 
   UpdateProductDto, EProductCategory, ProductOrderDto, UnavailableProductsDto, 
   ProductDto, AccountReviewDto, ProductReviewDto, TransactionDto } from '@app/lib';
+import { EMPTY, from, Observable, of, switchMap } from 'rxjs';
 
 @Controller()
 export class ProductController {
@@ -12,38 +13,39 @@ export class ProductController {
   ) {};
 
   @MessagePattern({ cmd: 'get_total' })
-  async getTotal (@Payload() data: { category?: EProductCategory }): Promise<SuccessDto<number>> {
-    return this.productService.getTotal(data.category);
+  getTotal (@Payload() data: { category?: EProductCategory }): Observable<SuccessDto<number>> {
+    return from(this.productService.getTotal(data.category)).pipe(
+      switchMap((result) => result ? of(result) : EMPTY)
+    );
   }
 
   @MessagePattern({ cmd: 'get_product_list' })
-  async getProductList(@Payload() data: { limit?: number, offset?: number }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getProductList(data.limit, data.offset);
+  getProductList(@Payload() data: { limit?: number, offset?: number }): Observable<SuccessDto<PartialProductDto[]>> {
+    return from(this.productService.getProductList(data.limit, data.offset))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   };
 
   @MessagePattern({ cmd: 'get_my_product_list' })
-  async getMyProductList(@Payload() data: { accountId: string, limit?: number}): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getMyProductList(data.accountId, data.limit);
+  getMyProductList(@Payload() data: { accountId: string, limit?: number}): Observable<SuccessDto<PartialProductDto[]>> {
+    return from(this.productService.getMyProductList(data.accountId, data.limit))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   };
 
   @MessagePattern({ cmd: 'get_product_by_category' })
-  async getProductByCategory(@Payload() data: { category: EProductCategory, limit?: number, offset?: number }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getProductByCategory(data.category, data.limit, data.offset);
+  getProductByCategory(@Payload() data: { category: EProductCategory, limit?: number, offset?: number }): Observable<SuccessDto<PartialProductDto[]>> {
+    return from(this.productService.getProductByCategory(data.category, data.limit, data.offset))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   };
 
   @MessagePattern({ cmd: 'get_featured' })
-  async getFeatured(@Payload() data: { limit?: number, offset?: number }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getFeatured(data.limit, data.offset);
+  getFeatured(@Payload() data: { limit?: number }): Observable<SuccessDto<PartialProductDto[]>> {
+    return from(this.productService.getFeatured(data.limit))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   };
 
   @MessagePattern({ cmd: 'search' })
   async searchProduct(@Payload() data: { contains: string, limit?: number }): Promise<SuccessDto<PartialProductDto[]>> {
     return this.productService.searchProduct(data.contains, data.limit);
-  }
-
-  @MessagePattern({ cmd: 'get_account_products'})
-  async getAccountProducts(@Payload() data:{ username: string }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getAccountProducts(data.username);
   }
 
   @MessagePattern({ cmd: 'create_product' })
@@ -67,8 +69,9 @@ export class ProductController {
   }
 
   @MessagePattern({ cmd: 'get_product' })
-  async getProductById(@Payload() data: { productId: string }): Promise<SuccessDto<ProductDto>> {
-    return this.productService.getProductById(data.productId);
+  getProductById(@Payload() data: { productId: string }): Observable<SuccessDto<ProductDto>> {
+    return from(this.productService.getProductById(data.productId))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   }
 
   @MessagePattern({ cmd: 'delete_product' })
@@ -87,8 +90,9 @@ export class ProductController {
   };
 
   @MessagePattern({ cmd: 'get_account_reviews' })
-  async getAccountReviews(@Payload() data: { accountId: string }): Promise<SuccessDto<AccountReviewDto[]>> {
-    return this.productService.getAccountReviews(data.accountId);
+  getAccountReviews(@Payload() data: { accountId: string }): Observable<SuccessDto<AccountReviewDto[]>> {
+    return from(this.productService.getAccountReviews(data.accountId))
+      .pipe(switchMap((result) => result ? of(result) : EMPTY));
   }
 
   @MessagePattern({ cmd: 'create_review' })
@@ -159,5 +163,28 @@ export class ProductController {
   @MessagePattern({ cmd: 'is_active' })
   async isActive(@Payload() data: { productId: string }): Promise<SuccessDto<void>> {
     return this.productService.isActive(data.productId);
+  }
+
+  @MessagePattern({ cmd: 'get_account_products'})
+  async getAccountProducts(@Payload() data:{ id: string }): Promise<SuccessDto<PartialProductDto[]>> {
+    return this.productService.getAccountProducts(data.id);
+  }
+
+
+
+
+
+
+
+
+  //---------------------- Initial load for TESTING ---------------------------------
+  @MessagePattern({ cmd: 'testing_load' })
+  async loadDefaultAccounts(@Payload() data:{ products: any[] }): Promise<SuccessDto<void>> {
+    return this.productService.seedProducts(data.products);
+  }
+
+  @MessagePattern({ cmd: 'get_categories' })
+  async getCategories(): Promise<SuccessDto<string[] | any>> {
+    return this.productService.getCategories();
   }
 }

@@ -1,5 +1,5 @@
 import { ExactlyOne } from "../../../shared/exactlyOne.decorator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { IsDate, IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
 
 class AdminAccount{
@@ -13,6 +13,10 @@ class BusinessAccount{
     @IsNotEmpty()
     title: string;
 
+    @IsOptional()
+    @IsString()
+    cbu?: string;
+    
     @IsOptional()
     @IsString()
     bio?: string;
@@ -32,6 +36,11 @@ class UserAccount{
     lastname: string;
 
     @IsOptional()
+    @IsString()
+    cbu?: string;
+
+    @IsOptional()
+    @Transform(({ value }) => value ? new Date(value) : undefined)
     @IsDate()
     birth?: Date;
 

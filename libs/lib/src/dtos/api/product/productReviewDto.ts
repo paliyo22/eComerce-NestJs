@@ -9,7 +9,7 @@ export class ProductReviewDto{
         this.username = username;
         this.productId = productId;
         this.rating = rating;
-        this.comment = comment ? comment : undefined;
-        this.created = created ? new Date(created) : new Date();
+        this.comment = comment;
+        this.created = new Date(created);
     };
 }

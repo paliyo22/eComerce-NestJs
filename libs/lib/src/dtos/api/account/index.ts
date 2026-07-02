@@ -7,3 +7,4 @@ export * from './loginDto';
 export * from './partialAccountOutputDto';
 export * from './updateAccountDto';
 export * from './withdrawalDto';
+export * from './incomeDto';

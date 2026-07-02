@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, 
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, 
     ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { StoreService } from "./store.service";
-import { CreateStoreDto, StoreDto } from "@app/lib";
+import { badRequest, CreateStoreDto, ERole, StoreDto } from "@app/lib";
 import { JwtAuthGuard } from "../guards/jwtAuth.guard";
 import { User } from "../decorators/authGuard.decorator";
+import { type JwtPayload } from "../interfaces/JwtPayload";
 
 @Controller('store')
 export class StoreController {
@@ -23,10 +24,13 @@ export class StoreController {
     @UseGuards(JwtAuthGuard)
     @HttpCode(201)
     async addStore(
-        @User('accountId') accountId: string,
+        @User() account: JwtPayload,
         @Body() store: CreateStoreDto
     ): Promise<StoreDto> {
-        return this.storeService.addStore(accountId, store);
+        if(account.role === ERole.User || account.role === ERole.Admin){
+            throw new HttpException(badRequest.message, badRequest.code); 
+        };
+        return this.storeService.addStore(account.accountId, store);
     }
 
     @Get('/:username')

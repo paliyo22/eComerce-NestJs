@@ -10,7 +10,7 @@ import { RefreshToken } from "./refreshTokenEntity";
 import { Store } from "./storeEntity";
 import { UserProfile } from "./userEntity";
 import { Withdrawal } from "./withdrawalEntity";
-import { Increment } from "./incrementEntity";
+import { Income } from "./incomeEntity";
 
 @Entity('account')
 @Index('idx_email', ['email'])
@@ -63,6 +63,6 @@ export class Account {
   @OneToMany(() => Withdrawal, (w) => w.account)
   withdrawal?: Withdrawal[];
 
-  @OneToMany(() => Increment, (i) => i.account)
-  increment?: Increment[];
+  @OneToMany(() => Income, (i) => i.account)
+  increment?: Income[];
 }

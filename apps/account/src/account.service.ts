@@ -9,11 +9,16 @@ import { SuccessDto, PartialAccountDto, Account, Address, AdminProfile, Business
   CreateStoreDto, StoreDto, Status, ERole, getRoleGroup, errorMessage, EAccountStatus, 
   badRequest, banned, suspended, unauthorized, Balance, notFound, AccountOutputDto, 
   PartialAccountOutputDto, Withdrawal, WithdrawalDto, EStateStatus, EBalanceStatus, 
-  CreateAccountDto, UpdateAccountDto, TransactionDto, withRetry, Increment} from '@app/lib';
+  CreateAccountDto, UpdateAccountDto, TransactionDto, withRetry,
+  uuidTransformer,
+  PartialProductDto,
+  IncomeDto,
+  Income} from '@app/lib';
 import { firstValueFrom, from, retry, timeout } from 'rxjs';
 import Redis from 'ioredis';
 import EventEmitter from 'events';
 import { ClientProxy } from '@nestjs/microservices';
+import { PublicAccountDto } from '@app/lib/dtos/api/account/publicAccountDto';
 
 @Injectable()
 export class AccountService {
@@ -35,6 +40,8 @@ export class AccountService {
     private readonly metaRepository: Repository<MetaA>,
     @InjectRepository(Status)
     private readonly statusRepository: Repository<Status>,
+    @InjectRepository(Income)
+    private readonly incomeRepository: Repository<Income>,
     @Inject('REDIS_CLIENT')
     private redis: Redis,
     @Inject('PRODUCT_SERVICE') 
@@ -114,7 +121,8 @@ export class AccountService {
   private async getAccount (accountId: string): Promise<SuccessDto<Account>> {
     try {
       const qb = this.completeAccount();
-      const account = await qb.where('account.id = :id', { id: accountId })
+      const account = await qb
+        .where('account.id = :id', { id: uuidTransformer.to(accountId) })
         .getOne();
 
       if (!account) {
@@ -133,7 +141,7 @@ export class AccountService {
   private async getPartialAccount (id: string): Promise<SuccessDto<Account>> {
     try {
       const qb = this.partialAccount();
-      const account = await qb.where('a.id = :id', { id })
+      const account = await qb.where('a.id = :id', { id: uuidTransformer.to(id) })
         .getOne();
 
       if (!account) {
@@ -249,10 +257,9 @@ export class AccountService {
       await this.refreshRepository
         .createQueryBuilder()
         .delete()
-        .where('accountId = :accountId', { accountId })
+        .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .andWhere('device = :device', {device})
         .execute();
-
     } catch (err: any) {
       errorMessage(AccountService.name, err);
     }
@@ -260,10 +267,10 @@ export class AccountService {
 
   async refresh(accountId: string, refreshToken: string, ip: string, device: string): Promise<SuccessDto<PartialAccountDto>> {
     try {
-      const token = await this.refreshRepository.createQueryBuilder()
-      .where('accountId = :accountId', { accountId })
-      .andWhere('device = :device', { device })
-      .andWhere('token = :tk', { tk: refreshToken })
+      const token = await this.refreshRepository.createQueryBuilder('rp')
+      .where('rp.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+      .andWhere('rp.device = :device', { device })
+      .andWhere('rp.token = :tk', { tk: refreshToken })
       .getOne();
 
       if (!token) {
@@ -271,11 +278,13 @@ export class AccountService {
       }
 
       if (token.expiredAt.getTime() < Date.now()) {
-        await this.refreshRepository.createQueryBuilder()
+        await this.refreshRepository.createQueryBuilder('rp')
           .delete()
-          .where('accountId = :accountId', { accountId })
-          .andWhere('token = :tk', { tk: refreshToken })
+          .where('rp.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+          .andWhere('rp.token = :tk', { tk: refreshToken })
           .execute();
+
+        this.logger.fatal('error del if');
         return badRequest;
       }
 
@@ -347,11 +356,12 @@ export class AccountService {
       const hashed = await this.hashPassword(dto.password);
 
       const accountEntity = await this.accountRepository.manager.transaction(async manager => {
-        const account = await manager.save(Account, {
+        const account = manager.create(Account, {
           username: dto.username,
           email: dto.email,
           password: hashed,
         });
+        await manager.save(account);
 
         await manager.save(MetaA, { 
           accountId: account.id
@@ -381,7 +391,7 @@ export class AccountService {
           .innerJoinAndSelect('a.meta', 'm')
           .leftJoinAndSelect('m.role', 'r')
           .leftJoinAndSelect('m.status', 's')
-          .where('a.id = :id', { id: account.id })
+          .where('a.id = :id', { id: uuidTransformer.to(account.id) })
           .getOne();
       });
 
@@ -465,7 +475,7 @@ export class AccountService {
         profileChanges = true;
         account.userProfile.firstname = dto.userAccount.firstname ?? account.userProfile.firstname;
         account.userProfile.lastname = dto.userAccount.lastname ?? account.userProfile.lastname;
-        account.userProfile.birth = dto.userAccount.birth ?? account.userProfile.birth;
+        account.userProfile.birth = dto.userAccount.birth ? new Date(dto.userAccount.birth) : account.userProfile.birth;
         account.userProfile.phone = dto.userAccount.phone ?? account.userProfile.phone;  
       };
 
@@ -477,7 +487,7 @@ export class AccountService {
             await manager.createQueryBuilder()
               .update(Account)
               .set({ email: account.email, username: account.username})
-              .where('id = :id', { id: accountId })
+              .where('id = :id', { id: uuidTransformer.to(accountId) })
               .execute();
           };
           if(dto.adminAccount){
@@ -492,7 +502,7 @@ export class AccountService {
         await this.accountRepository.createQueryBuilder()
           .update(Account)
           .set({ email: account.email, username: account.username})
-          .where('id = :id', { id: accountId })
+          .where('id = :id', { id: uuidTransformer.to(accountId) })
           .execute();
       };
       
@@ -548,11 +558,11 @@ export class AccountService {
         .createQueryBuilder()
         .update(MetaA)
         .set({ deletedBy: accountId, deleted: new Date(), statusId: newStatus.id })
-        .where('accountId = :accountId', { accountId })
+        .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .execute();
 
       firstValueFrom(
-        this.productClient.emit('delete.account.data', { accountId})
+        this.productClient.emit('delete.account.data', { accountId })
         .pipe(retry(1), timeout(1000))
       ).catch(() => {
         this.logger.warn(`Error emitting the deleted account "${accountId}" to delete the products`);
@@ -593,7 +603,7 @@ export class AccountService {
     try {
       const addresses = await this.addressRepository
         .createQueryBuilder('a')
-        .where('a.accountId = :accountId', {accountId})
+        .where('a.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .getMany();
 
       if(!addresses.length){
@@ -616,7 +626,7 @@ export class AccountService {
 
   async addAddress(accountId: string, dto: CreateAddressDto): Promise<SuccessDto<AddressDto>> {
     try {
-      const address = await this.addressRepository.save({
+      const address = this.addressRepository.create({
         accountId: accountId,
         address: dto.address,
         apartment: dto.apartment ?? null,
@@ -625,7 +635,9 @@ export class AccountService {
         country: dto.country
       });
 
-      return { success: true, data: new AddressDto(address) };
+      const result = await this.addressRepository.save(address);
+
+      return { success: true, data: new AddressDto(result) };
     } catch (err: any) {
       return errorMessage(AccountService.name, err);
     }
@@ -636,8 +648,8 @@ export class AccountService {
       const result = await this.addressRepository
         .createQueryBuilder()
         .delete()
-        .where('accountId = :accountId', {accountId})
-        .andWhere('id = :id', { id: addressId })
+        .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+        .andWhere('id = :id', { id: uuidTransformer.to(addressId) })
         .execute();
 
       if (!result.affected) {
@@ -664,7 +676,7 @@ export class AccountService {
         return badRequest;
       }else{
         if(accountId){
-          qb.where('a.id = :accountId', {accountId});
+          qb.where('a.id = :accountId', { accountId: uuidTransformer.to(accountId) });
         }else{
           qb.where('a.username = :username', {username});
         };
@@ -692,13 +704,25 @@ export class AccountService {
   
   async addStore(accountId: string, dto: CreateStoreDto): Promise<SuccessDto<StoreDto>> {
     try {
-      const result = await this.storeRepository.manager.transaction(async manager => {
-        const store = await manager.save(Store, {
-          accountId: accountId,
-          phone: dto.phone
-        });
 
-        const address = await manager.save(Address, {
+      const account = await this.getAccount(accountId);
+      if(!account.success){
+        return {
+          success: false,
+          code: account.code,
+          message: account.message
+        };
+      };
+
+      const phone = account.data!.businessProfile ? account.data!.businessProfile.phone : account.data!.userProfile.phone;
+      const result = await this.storeRepository.manager.transaction(async manager => {
+        const newStore = manager.create(Store, {
+          accountId: accountId,
+          phone: dto.phone ?? phone
+        });
+        const store = await manager.save(newStore);
+
+        const newAddress = manager.create(Address, {
           storeId: store.id,
           address: dto.address,
           apartment: dto.apartment ?? null,
@@ -706,6 +730,7 @@ export class AccountService {
           zip: dto.zip,
           country: dto.country
         });
+        const address = await manager.save(newAddress);
 
         store.address = address;
 
@@ -726,8 +751,8 @@ export class AccountService {
       const result = await this.storeRepository
         .createQueryBuilder()
         .delete()
-        .where('id = :storeId', { storeId })
-        .andWhere('accountId = :accountId', { accountId })
+        .where('id = :storeId', { storeId: uuidTransformer.to(storeId) })
+        .andWhere('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .execute();
       
       if (!result.affected) {
@@ -746,11 +771,11 @@ export class AccountService {
     try {
       const result = await this.balanceRepository
         .createQueryBuilder()
-        .where('accountId = :id', {id: accountId})
+        .where('accountId = :id', { id: uuidTransformer.to(accountId) })
         .getOne();
 
       if(!result){
-        return errorMessage(AccountService.name);
+        return notFound;
       }
 
       return{
@@ -766,11 +791,31 @@ export class AccountService {
     try {
       const result = await this.withdrawalRepository
         .createQueryBuilder()
-        .where('accountId = :id', { id: accountId })
+        .where('accountId = :id', { id: uuidTransformer.to(accountId) })
         .andWhere('status != :status', { status: EStateStatus.Pending })
+        .orderBy('a.created', 'DESC')
         .getMany();
 
       const data = result.map((w) => new WithdrawalDto(w));
+      
+      return {
+        success: true,
+        data
+      };
+    } catch (err: any) {
+      return errorMessage(AccountService.name, err);
+    }
+  }
+
+  async getIncomes(accountId: string): Promise<SuccessDto<IncomeDto[]>>{
+    try {
+      const result = await this.incomeRepository
+        .createQueryBuilder()
+        .where('accountId = :id', { id: uuidTransformer.to(accountId) })
+        .orderBy('a.created', 'DESC')
+        .getMany();
+
+      const data = result.map((i) => new IncomeDto(i));
       
       return {
         success: true,
@@ -790,13 +835,13 @@ export class AccountService {
       const result = await this.balanceRepository.manager.transaction(async (manager): Promise<Withdrawal | 'ERROR' | 'BAD_REQUEST'> => {
         const balance = await manager.createQueryBuilder(Balance, 'b')
           .setLock('pessimistic_write')
-          .where('b.accountId = :id', { id: accountId })
+          .where('b.accountId = :id', { id: uuidTransformer.to(accountId) })
           .getOne();
 
         const account = await manager.createQueryBuilder(Account, 'a')
           .leftJoinAndSelect('a.userProfile', 'u')
           .leftJoinAndSelect('a.businessProfile', 'b')
-          .where('a.id = :id', { id: accountId })
+          .where('a.id = :id', { id: uuidTransformer.to(accountId) })
           .getOne();
         
         if(!balance || !account){
@@ -811,7 +856,7 @@ export class AccountService {
         await manager.createQueryBuilder(Balance, 'b')
           .update(Balance)
           .set({ status: EBalanceStatus.PROCESSING })
-          .where('b.accountId = :id', { id: accountId })
+          .where('b.accountId = :id', { id: uuidTransformer.to(accountId) })
           .execute();
 
         const withdrawal = manager.create(Withdrawal, {
@@ -824,11 +869,11 @@ export class AccountService {
         const newWithdrawal = await manager.save(Withdrawal, withdrawal);
         let result: Withdrawal;
         if(balance.amount < amount){
-          await manager.createQueryBuilder(Withdrawal, 'w')
+          await manager.createQueryBuilder()
             .update(Withdrawal)
             .set({ status: EStateStatus.Failed })  
-            .where('w.token = :token', { token: newWithdrawal.token })
-            .andWhere('w.accountId = :accountId', { accountId })
+            .where('token = :token', { token: newWithdrawal.token })
+            .andWhere('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
             .execute();
           newWithdrawal.status = EStateStatus.Failed;
           result = newWithdrawal
@@ -839,7 +884,7 @@ export class AccountService {
             .update(Withdrawal)
             .set({ status: EStateStatus.Completed })  
             .where('w.token = :token', { token: newWithdrawal.token })
-            .andWhere('w.accountId = :accountId', { accountId })
+            .andWhere('w.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
             .execute();
           newWithdrawal.status = EStateStatus.Completed;
           result = newWithdrawal;
@@ -847,7 +892,7 @@ export class AccountService {
         await manager.createQueryBuilder(Balance, 'b')
           .update(Balance)
           .set({ status: EBalanceStatus.IDLE })
-          .where('b.accountId = :id', { id: accountId })
+          .where('b.accountId = :id', { id: uuidTransformer.to(accountId) })
           .execute();
         return result;
       }); 
@@ -892,6 +937,126 @@ export class AccountService {
       const lock = `lock:${token.uuid}`;
       await this.releaseLock(lock, token.uuid); 
       await this.redis.publish(`transaction:done:${token.uuid}`, token.status).catch(() => {});
+    }
+  }
+
+  async getPublicAccount (username: string): Promise<SuccessDto<PublicAccountDto>> {
+    try {
+      const qb = this.completeAccount();
+      const account = await qb.where('account.username = :username', { username })
+        .getOne(); 
+      
+      if(!account){
+        return badRequest;
+      };
+
+      if(account.meta.status.slug === EAccountStatus.Banned){
+        return banned;
+      };
+
+      const products = await firstValueFrom(
+        this.productClient.send<SuccessDto<PartialProductDto[]>>(
+          {cmd: 'get_account_products'},
+          { id: account.id }
+        ).pipe(timeout(2000))
+      );
+
+      if(!products.success){
+        return {
+          success: false,
+          message: products.message,
+          code: products.code
+        }
+      };
+
+      const data = new PublicAccountDto(new AccountDto(account), products.data);
+
+      return {
+        success: true,
+        data
+      }
+    } catch (err: any) {
+      return errorMessage(AccountService.name, err);
+    }
+  }
+
+  async publicSearch(contains: string, limit?: number): Promise<SuccessDto<string[]>> {
+    try {
+      const normalized = contains.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
+      if(!normalized || normalized.length < 3){
+        return {
+          success: true,
+          data: []
+        };
+      };
+
+      const term = `%${normalized}%`;
+
+      const users = await this.accountRepository
+        .createQueryBuilder('account')
+        .leftJoinAndSelect('account.meta', 'meta')
+        .leftJoinAndSelect('meta.status', 'status')
+        .leftJoinAndSelect('meta.role', 'role')
+        .leftJoinAndSelect('account.userProfile', 'user')
+        .leftJoinAndSelect('account.businessProfile', 'business')
+        .where( new Brackets(qb => {
+          qb.where('account.username LIKE :term', { term })
+          .orWhere('account.email LIKE :term', { term })
+          .orWhere('user.firstname LIKE :term', { term })
+          .orWhere('user.lastname LIKE :term', { term })
+          .orWhere('business.title LIKE :term', { term })
+          .orWhere('business.bio LIKE :term', { term })
+        }))
+        .orderBy('meta.created', 'DESC')
+        .take(50)
+        .getMany();
+
+      const data = users.map((acc) => acc.username);
+      return {
+        success: true,
+        data 
+      };
+    } catch (err: any) {
+      return errorMessage(AccountService.name, err);
+    }
+  }
+
+  async changeCbu(accountId: string, password: string, newCBU: string): Promise<SuccessDto<void>> {
+    try {
+      const account = await this.getAccount(accountId);
+
+      if(!account.success){
+        return {
+          success: account.success, 
+          code: account.code, 
+          message: account.message
+        }
+      };
+
+      const valid = await compare(password, account.data.password);
+      if (!valid){
+        return badRequest;
+      }
+
+      if(account.data.businessProfile){
+        await this.accountRepository.createQueryBuilder()
+          .update(BusinessProfile)
+          .set({ cbu: newCBU })
+          .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+          .execute();  
+      }else{
+        await this.accountRepository.createQueryBuilder()
+          .update(UserProfile)
+          .set({ cbu: newCBU })
+          .where('accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+          .execute();
+      };
+      
+      return {
+        success: true
+      };
+    }catch(err: any) {
+      return errorMessage(AccountService.name, err);
     }
   }
   //------------------ ADMIN FUNCTIONS -------------------------------
@@ -1123,11 +1288,13 @@ export class AccountService {
       await this.accountRepository.manager.transaction(async manager => {
         const hashed = await this.hashPassword(dto.password);
         
-        const account = await manager.save(Account, {
+        const account = manager.create(Account, {
           username: dto.username,
           email: dto.email,
           password: hashed
-        });
+        }); 
+        
+        await manager.save(account);
 
         await manager.save(MetaA,{
           accountId: account.id
@@ -1147,7 +1314,7 @@ export class AccountService {
     }
   }
 
-  async banAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+  async banAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
     try {
       const verify = await this.getPartialAccount(adminId);
 
@@ -1167,7 +1334,7 @@ export class AccountService {
       .createQueryBuilder('a')
       .innerJoinAndSelect('a.meta', 'm')
       .leftJoinAndSelect('m.status', 's')
-      .where('a.email = :input', { input: mail })
+      .where('a.email = :input', { input: email })
       .getOne();
 
       if (!user) {
@@ -1184,7 +1351,7 @@ export class AccountService {
           .createQueryBuilder()
           .update(MetaA)
           .set({ deletedBy: adminId, deleted: new Date(), statusId: newStatus.id })
-          .where('accountId = :id', { id: user.id })
+          .where('accountId = :id', { id: uuidTransformer.to(user.id) })
           .execute();
 
         firstValueFrom(
@@ -1205,7 +1372,7 @@ export class AccountService {
     }
   }
 
-  async restoreAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+  async restoreAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
     try {
       const verify = await this.getPartialAccount(adminId);
 
@@ -1225,7 +1392,7 @@ export class AccountService {
       .createQueryBuilder('a')
       .innerJoinAndSelect('a.meta', 'm')
       .leftJoinAndSelect('m.status', 's')
-      .where('a.email = :input', { input: mail })
+      .where('a.email = :input', { input: email })
       .getOne();
 
       if (!user) {
@@ -1242,7 +1409,7 @@ export class AccountService {
           .createQueryBuilder()
           .update(MetaA)
           .set({ deletedBy: null, deleted: null, statusId: newStatus.id })
-          .where('accountId = :id', { id: user.id })
+          .where('accountId = :id', { id: uuidTransformer.to(user.id) })
           .execute();
 
         return { 
@@ -1256,7 +1423,7 @@ export class AccountService {
     }
   }  
 
-  async suspendAccount(adminId: string, mail: string): Promise<SuccessDto<void>> {
+  async suspendAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
     try {
       const verify = await this.getPartialAccount(adminId);
 
@@ -1276,7 +1443,7 @@ export class AccountService {
       .createQueryBuilder('a')
       .innerJoinAndSelect('a.meta', 'm')
       .leftJoinAndSelect('m.status', 's')
-      .where('a.email = :input', { input: mail })
+      .where('a.email = :input', { input: email })
       .getOne();
 
       if (!user) {
@@ -1293,7 +1460,7 @@ export class AccountService {
           .createQueryBuilder()
           .update(MetaA)
           .set({ deletedBy: adminId, deleted: new Date(), statusId: newStatus.id })
-          .where('accountId = :id', { id: user.id })
+          .where('accountId = :id', { id: uuidTransformer.to(user.id) })
           .execute();
 
         firstValueFrom(
@@ -1324,8 +1491,9 @@ export class AccountService {
         };
       }
 
+      const ids = accountIds.map((a) => uuidTransformer.to(a));
       const qb = this.completeAccount();
-      const account = await qb.where('account.id IN (:...ids)', { ids: accountIds })
+      const account = await qb.where('account.id IN (:...ids)', { ids })
         .getMany();
 
       const data = account.map((acc) => new AccountDto(acc));
@@ -1348,8 +1516,9 @@ export class AccountService {
         };
       };
 
+      const ids = accountIds.map((a) => uuidTransformer.to(a));
       const qb = this.partialAccount();
-      const account = await qb.where('a.id IN (:...ids)', { ids: accountIds })
+      const account = await qb.where('a.id IN (:...ids)', { ids })
         .getMany();
 
       const data = account.map((acc) => new PartialAccountDto(acc));
@@ -1363,7 +1532,7 @@ export class AccountService {
     }
   }
 
-  async addToBalance(accounts: {accountId: string, balance: number}[], token: TransactionDto): Promise<void> {
+  async addToBalance(accounts: {accountId: string, balance: number, orderId: string}[], token: TransactionDto): Promise<void> {
     const failures: { id: string; amount: number; error: any }[] = [];
     const cacheKey = `transaction:${token.uuid}`;
 
@@ -1375,7 +1544,7 @@ export class AccountService {
             'amount',
             a.balance
           );
-          await manager.insert(Increment, { token: token.uuid, accountId: a.accountId, amount: a.balance });
+          await manager.insert(Income, { token: token.uuid, accountId: a.accountId, orderId: a.orderId, amount: a.balance });
         });
       } catch (err: any) {
         failures.push({ id: a.accountId, amount: a.balance, error: err?.message ?? err });
@@ -1393,5 +1562,88 @@ export class AccountService {
     const lock = `lock:${token.uuid}`;
     await this.releaseLock(lock, token.uuid);
     await this.redis.publish(`transaction:done:${token.uuid}`, token.status).catch(() => {});
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  //---------------------- Initial load for TESTING ---------------------------------
+  async loadDefaultAccounts(dto: CreateAccountDto[]): Promise<SuccessDto<string[]>> {
+    try {
+      const result: string[] = [];
+      for (const a of dto) {
+        const id = await this.load(a);
+        result.push(id);
+      }
+
+      return {
+        success: true,
+        data: result
+      };
+    } catch (err: any) {
+      this.logger.fatal(err);
+      return {
+        success: false
+      };
+    }
+  }
+  private async load(dto: CreateAccountDto): Promise<string> {
+    const hashed = await this.hashPassword(dto.password);
+
+    return this.accountRepository.manager.transaction(async manager => {
+      const account = manager.create(Account, {
+        username: dto.username,
+        email: dto.email,
+        password: hashed,
+      });
+      await manager.save(account);
+
+      await manager.save(MetaA, { 
+        accountId: account.id
+      });
+
+      if(dto.businessAccount){
+        await manager.save(BusinessProfile, {
+          accountId: account.id,
+          title: dto.businessAccount.title,
+          bio: dto.businessAccount.bio ?? null,
+          phone: dto.businessAccount.phone
+        });
+      };
+
+      if(dto.userAccount){
+        await manager.save(UserProfile, {
+          accountId: account.id,
+          firstname: dto.userAccount.firstname,
+          lastname: dto.userAccount.lastname,
+          birth: dto.userAccount.birth ? new Date(dto.userAccount.birth) : null,
+          phone: dto.userAccount.phone ?? null
+        });
+      };
+
+      if(dto.adminAccount){
+        await manager.save(AdminProfile, {
+          accountId: account.id,
+          publicName: dto.adminAccount.publicName
+        });
+      };
+
+      return account.id;
+    });
   }
 }

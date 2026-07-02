@@ -22,15 +22,15 @@ export class OrderController {
     }
     
     // ------------------------- METODOS DE COMPRADORES -------------------------------
-    @Get('/shoppingList')
+    @Get('/shopping-list')
     async getShoppingOrderList(
         @User('accountId') accountId: string
     ): Promise<PartialOrderDto[]>{
         return this.orderService.getShoppingList(accountId);
     }
 
-    @Get('/outgo')
-    async getOutgoBetween(
+    @Get('/expenses')
+    async getExpensesBetween(
         @User('accountId') accountId: string,
         @Query('since', new ParseDatePipe({ optional: true })) since?: Date,
         @Query('until', new ParseDatePipe({ optional: true })) until?: Date
@@ -40,8 +40,9 @@ export class OrderController {
         }
         return this.orderService.getOutgoBetween(accountId, since, until)
     }
+    
     // ------------------------- METODOS DE VENDEDORES ----------------------------------
-    @Get('/salesList')
+    @Get('/sales-list')
     async getSalesOrderList(
         @User('accountId') accountId: string
     ): Promise<SaleDto[]>{

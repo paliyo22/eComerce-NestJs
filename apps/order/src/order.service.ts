@@ -5,7 +5,8 @@ import { SuccessDto, OrderDto, DraftOrder, OrderItem, Order, DraftOrderOutputDto
   CreateDraftOrderDto, withRetry, ProductOrderDto, DraftItem, EStateStatus, 
   PartialOrderDto, SaleDto, UnavailableProductsDto, errorMessage, badRequest, 
   unauthorized, notFound, expired, MoneyVariations, PartialAccountDto, 
-  TransactionDto} from '@app/lib';
+  TransactionDto,
+  uuidTransformer} from '@app/lib';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, from } from 'rxjs';
 import Redis from 'ioredis';
@@ -125,8 +126,13 @@ export class OrderService {
     const cacheKey = `transaction:${token.uuid}`;
     const accountBalance = items.reduce((acc, i) => {
       if(!acc[i.sellerId]) {
-        acc[i.sellerId] = {accountId: i.sellerId, balance: 0};
+        acc[i.sellerId] = {
+          accountId: i.sellerId, 
+          orderId: i.orderId,
+          balance: 0
+        };
       };
+
       acc[i.sellerId].balance += i.subtotal;
       return acc 
     }, {});
@@ -165,7 +171,7 @@ export class OrderService {
   }
   
   async check(token: TransactionDto): Promise<'completed' | 'failed' | 'try'> {
-    const timeout = token.isInternal ? (this.config.get<number>('MESSAGE_TIMEOUT') + 1000) : 3000;
+    const timeout = token.isInternal ? (this.config.get<number>('MESSAGE_TIMEOUT') + 1000) : 3100;
     const cacheKey = `transaction:${token.uuid}`;
     const cached = await firstValueFrom(from(this.redis.get(cacheKey)).pipe(withRetry(3))).catch(() => undefined);
     const lock = `lock:${token.uuid}`;
@@ -203,10 +209,10 @@ export class OrderService {
 
       const account = accounts.data?.pop();
       if(!account){
-        return errorMessage(OrderService.name);
+        return errorMessage();
       }
 
-      let result: SuccessDto<ProductOrderDto[] | UnavailableProductsDto[]> | undefined = undefined; 
+      let result: SuccessDto<ProductOrderDto[] | UnavailableProductsDto[]>; 
 
       if(dto.fromCart){
         result = await firstValueFrom(
@@ -226,6 +232,10 @@ export class OrderService {
         ); 
       };
 
+      if(!result){
+        return errorMessage();
+      };
+
       if(!result.success){
         if(!result.data){
           return {
@@ -241,7 +251,7 @@ export class OrderService {
         }
       };
 
-      const productOrder = result.data as ProductOrderDto[];
+      const productOrder = result.data! as ProductOrderDto[];
       productIds = productOrder.map((i) => {
           return {
             id: i.productId,
@@ -254,12 +264,13 @@ export class OrderService {
       });
 
       const draftOrder = await this.orderRepo.manager.transaction(async manager => {
-        const createDraftOrder = await manager.save(DraftOrder, {
+        const createDraftOrder = manager.create(DraftOrder, {
           accountId: accountId,
           total: total,
           shippingAddress,
           contactEmail: account.email
-        });
+        }); 
+        await manager.save(createDraftOrder);
 
         const items = manager.create(DraftItem, productOrder.map((i) => {
           return{
@@ -274,7 +285,7 @@ export class OrderService {
             subtotal: i.getSubTotal()
           }
         }))
-        await manager.save(DraftItem, items);
+        await manager.save(items);
 
         return createDraftOrder;
       });
@@ -300,7 +311,7 @@ export class OrderService {
       const result = await this.draftRepo.manager.transaction(async manager => {
         const draft = await manager
           .createQueryBuilder(DraftOrder, 'd')
-          .where('d.id = :draftOrderId', { draftOrderId })
+          .where('d.id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
           .getOne();
 
         if(!draft) return notFound;
@@ -308,7 +319,7 @@ export class OrderService {
         if(draft.status !== EStateStatus.Pending){
           await manager.createQueryBuilder(DraftOrder, 'd')
             .delete()
-            .where('d.id = :draftOrderId', { draftOrderId })
+            .where('d.id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
             .execute()
         }
 
@@ -335,7 +346,7 @@ export class OrderService {
       }else{
         draft = await this.draftRepo
           .createQueryBuilder('d')
-          .where('d.id = :draftOrderId', { draftOrderId })
+          .where('d.id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
           .getOne();
       }
 
@@ -369,7 +380,7 @@ export class OrderService {
       const draft = await this.draftRepo.manager.transaction(async manager => {
         const draftOrder = await manager.createQueryBuilder(DraftOrder, 'd')
           .leftJoinAndSelect('d.items', 'i')
-          .where('d.id = :id', { id: draftOrderId })
+          .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
           .getOne();
         
         if(!draftOrder)
@@ -380,7 +391,7 @@ export class OrderService {
         await manager.createQueryBuilder(DraftOrder, 'd')
           .update(DraftOrder)
           .set({ status: EStateStatus.Failed })
-          .where('d.id = :id', { id: draftOrderId })
+          .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
           .execute();
 
         return draftOrder;
@@ -434,7 +445,7 @@ export class OrderService {
       const draftOrder = await this.draftRepo
         .createQueryBuilder('d')
         .innerJoinAndSelect('d.items', 'i')
-        .where('d.id = :id', { id: draftOrderId })
+        .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
         .getOne();
 
       if(!draftOrder){
@@ -469,16 +480,17 @@ export class OrderService {
         await manager.createQueryBuilder(DraftOrder, 'd')
           .update(DraftOrder)
           .set({ status: EStateStatus.Completed })
-          .where('d.id = :id', { id: draftOrderId })
+          .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
           .execute();
 
-        const order = await manager.save(Order, {
+        const order = manager.create(Order, {
           accountId: draftOrder.accountId,
           draftOrderId: draftOrder.id,
           total: draftOrder.total,
           shippingAddress: draftOrder.shippingAddress,
           contactEmail: draftOrder.contactEmail
-        });
+        }); 
+        await manager.save(order);
 
         const items = manager.create(OrderItem, draftOrder.items.map((i) => {
           return {
@@ -493,7 +505,7 @@ export class OrderService {
             subtotal: i.subtotal
           }
         }));
-        return await manager.save(OrderItem, items);
+        return await manager.save(items);
       });
 
       if(draftOrder.total !== 0){
@@ -534,19 +546,15 @@ export class OrderService {
       const order = orderId
         ? await this.orderRepo.createQueryBuilder('o')
             .leftJoinAndSelect('o.items', 'i')
-            .where('o.id = :id', { id: orderId })
+            .where('o.id = :id', { id: uuidTransformer.to(orderId) })
             .getOne()
         : await this.orderRepo.createQueryBuilder('o')
             .leftJoinAndSelect('o.items', 'i')
-            .where('o.draftOrderId = :id', { id: draftOrderId })
+            .where('o.draftOrderId = :id', { id: uuidTransformer.to(draftOrderId) })
             .getOne();
 
       if(!order){
-        return {
-          success: false,
-          code: 404,
-          message: 'Order not found.'
-        };
+        return notFound;
       };
 
       if(order.accountId !== accountId){
@@ -574,7 +582,7 @@ export class OrderService {
       }
       const orders = await this.orderRepo
         .createQueryBuilder('o')
-        .where('o.accountId = :accountId', { accountId })
+        .where('o.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .getMany();
 
       const data = orders.map((o) => new PartialOrderDto(o));
@@ -604,7 +612,7 @@ export class OrderService {
       const sales = await this.orderItemRepo
         .createQueryBuilder('i')
         .leftJoinAndSelect('i.order', 'o')
-        .where('i.sellerId = :accountId', { accountId })
+        .where('i.sellerId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .getMany();
 
       const data = sales.map((i) => new SaleDto(i));
@@ -639,7 +647,7 @@ export class OrderService {
       
       const shoppings = await this.orderRepo
         .createQueryBuilder('o')
-        .where('o.accountId = :accountId', { accountId })
+        .where('o.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .andWhere('o.created BETWEEN :since AND :until', { since, until })
         .getMany();
 
@@ -676,7 +684,7 @@ export class OrderService {
       const sales = await this.orderItemRepo
         .createQueryBuilder('i')
         .leftJoinAndSelect('i.order', 'o')
-        .where('i.sellerId = :accountId', { accountId })
+        .where('i.sellerId = :accountId', { accountId: uuidTransformer.to(accountId) })
         .andWhere('o.created BETWEEN :since AND :until', { since, until })
         .getMany();
 

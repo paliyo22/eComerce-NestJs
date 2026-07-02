@@ -12,7 +12,7 @@ RUN npm ci
 COPY libs ./libs
 COPY apps/gateway ./apps/gateway
 
-RUN npm run build gateway
+RUN npm run build:gateway
 
 # Production stage
 FROM node:22.14-alpine

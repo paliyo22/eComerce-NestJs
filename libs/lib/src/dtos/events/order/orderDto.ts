@@ -8,7 +8,7 @@ export class OrderDto extends PartialOrderDto{
 
     constructor(order: Order){
         super(order);
-        this.items = order.items.map((i) => new OrderItemDto(i))
+        this.items = order.items.map((i) => new OrderItemDto(i));
     }
 }
 

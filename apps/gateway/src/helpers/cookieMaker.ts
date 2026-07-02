@@ -5,15 +5,14 @@ export function cookieMaker (res: Response, accessToken: string, refreshToken: s
     res.cookie('accessToken', accessToken, {
         httpOnly: true,
         secure: config.get<string>('NODE_ENV') === 'production',
-        sameSite: 'lax',
+        sameSite: 'none',
         maxAge: config.get<number>('ACCESS_TIME')
     });
     res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
         secure: config.get<string>('NODE_ENV') === 'production',
-        sameSite: 'lax',
+        sameSite: 'none',
         maxAge: config.get<number>('REFRESH_TIME')
     });
     return res;
 }
-

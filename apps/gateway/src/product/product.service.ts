@@ -3,7 +3,6 @@ import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import { SuccessDto, CreateProductDto, PartialProductDto, UpdateProductDto, 
     withRetry, EProductCategory, ProductDto } from '@app/lib';
-import { v4 as uuidv4 } from 'uuid';
 import { errorManager } from '../helpers/errorManager';
 
 @Injectable()
@@ -15,11 +14,10 @@ export class ProductService {
 
     async getTotal(category?: EProductCategory): Promise<number> {
         try {
-            const messageId = uuidv4();
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<number>>(
                     {cmd: 'get_total'},
-                    { messageId, category }
+                    { category }
                 ).pipe(withRetry())
             ); 
 
@@ -90,12 +88,12 @@ export class ProductService {
         }
     };
 
-    async getFeatured(limit?: number, offset?: number): Promise<PartialProductDto[]> {
+    async getFeatured(limit?: number): Promise<PartialProductDto[]> {
         try {
             const result = await firstValueFrom(
                 this.productClient.send<SuccessDto<PartialProductDto[]>>(
                     { cmd: 'get_featured' },
-                    { limit, offset }
+                    { limit }
                 ).pipe(withRetry())
             );
 
@@ -109,48 +107,10 @@ export class ProductService {
         }
     }
 
-    async searchProduct (contains: string, limit?: number): Promise<PartialProductDto[]> {
+    async addProduct(accountId: string, product: CreateProductDto): Promise<ProductDto | string> {
         try {
             const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<PartialProductDto[]>>(
-                    { cmd: 'search' },
-                    { contains, limit }
-                ).pipe(withRetry())
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-            
-            return result.data!;
-        } catch (err: any) {
-            throw errorManager(err, ProductService.name);
-        }
-    }
-
-    async accountProductList (username: string): Promise<PartialProductDto[]> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<PartialProductDto[]>>(
-                    { cmd: 'get_account_products' },
-                    { username }
-                ).pipe(withRetry())
-            );
-
-            if (!result.success){
-                throw new HttpException(result.message!, result.code!);
-            };
-            
-            return result.data!;
-        } catch (err: any) {
-            throw errorManager(err, ProductService.name);
-        }
-    }
-
-    async addProduct(accountId: string, product: CreateProductDto): Promise<ProductDto> {
-        try {
-            const result = await firstValueFrom(
-                this.productClient.send<SuccessDto<ProductDto>>(
+                this.productClient.send<SuccessDto<ProductDto | string>>(
                     { cmd: 'create_product' },
                     { accountId, product }
                 ).pipe(withRetry())

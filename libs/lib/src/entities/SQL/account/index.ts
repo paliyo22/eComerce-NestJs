@@ -11,4 +11,4 @@ export * from './statusEntity';
 export * from './storeEntity';
 export * from './userEntity';
 export * from './withdrawalEntity';
-export * from './incrementEntity';
+export * from './incomeEntity';
