@@ -338,7 +338,6 @@ insert into role (slug) values
 ('user-seller');
 
 insert into status (slug) values
-('pending'),
 ('active'),
 ('suspended'),
 ('inactive'),

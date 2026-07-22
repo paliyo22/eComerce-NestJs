@@ -58,7 +58,8 @@ export class BalanceService {
             };
         } catch (err: any) {
             const cache = await this.redis.get(cacheKey).catch(() => undefined);
-            if(cache){
+
+            if(!(err instanceof HttpException) && cache){
                 const transaction = JSON.parse(cache) as TransactionDto;
                 if(transaction.status === EStateStatus.Completed){
                     return;
@@ -70,7 +71,7 @@ export class BalanceService {
                     message: 'TRANSACTION_PENDING',
                     data: token.uuid
                 }, 504);
-            };
+            };        
             throw errorManager(err, BalanceService.name);
         }
     }

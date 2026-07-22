@@ -5,11 +5,19 @@ import { CreateReviewDto, SuccessDto, CreateProductDto, PartialProductDto,
   UpdateProductDto, EProductCategory, ProductOrderDto, UnavailableProductsDto, 
   ProductDto, AccountReviewDto, ProductReviewDto, TransactionDto } from '@app/lib';
 import { EMPTY, from, Observable, of, switchMap } from 'rxjs';
+import { GeneralService } from './general.service';
+import { AdminService } from './admin.service';
+import { EventService } from './event.service';
+import { ReviewService } from './review.service';
 
 @Controller()
 export class ProductController {
   constructor(
-    private readonly productService: ProductService
+    private readonly productService: ProductService,
+    private readonly generalService: GeneralService,
+    private readonly adminService: AdminService,
+    private readonly eventService: EventService,
+    private readonly reviewService: ReviewService,
   ) {};
 
   @MessagePattern({ cmd: 'get_total' })
@@ -91,83 +99,83 @@ export class ProductController {
 
   @MessagePattern({ cmd: 'get_account_reviews' })
   getAccountReviews(@Payload() data: { accountId: string }): Observable<SuccessDto<AccountReviewDto[]>> {
-    return from(this.productService.getAccountReviews(data.accountId))
+    return from(this.reviewService.getAccountReviews(data.accountId))
       .pipe(switchMap((result) => result ? of(result) : EMPTY));
   }
 
   @MessagePattern({ cmd: 'create_review' })
   async addReview(@Payload() data: { accountId: string, review: CreateReviewDto }): Promise<SuccessDto<ProductReviewDto>> {
-    return this.productService.addReview(data.accountId, data.review);
+    return this.reviewService.addReview(data.accountId, data.review);
   }
 
   @MessagePattern({ cmd: 'delete_review' })
   async deleteReview(@Payload() data: { accountId: string, productId: string }): Promise<SuccessDto<void>> {
-    return this.productService.deleteReview(data.accountId, data.productId);
+    return this.reviewService.deleteReview(data.accountId, data.productId);
   }
 
   // ---------------------------- Admin Functions -----------------------------
   @EventPattern('calculate.rating')
   calculateRating(): void {
-    this.productService.calculateRating();
+    this.adminService.calculateRating();
   }
   
   @MessagePattern({ cmd: 'ban_product' })
   async banProduct(@Payload() data: { adminId: string, productId: string }): Promise<SuccessDto<void>> {
-    return this.productService.banProduct(data.adminId, data.productId);
+    return this.adminService.banProduct(data.adminId, data.productId);
   }
   
   @MessagePattern({ cmd: 'unban_product' })
   async unbanProduct(@Payload() data: { adminId: string, productId: string }): Promise<SuccessDto<void>> {
-    return this.productService.unbanProduct(data.adminId, data.productId);
+    return this.adminService.unbanProduct(data.adminId, data.productId);
   }
   
   @MessagePattern({ cmd: 'get_banned_list' })
   async getBanned(@Payload() data: { adminId: string, limit?: number, offset?: number }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getBannedList(data.adminId, data.limit, data.offset);
+    return this.adminService.getBannedList(data.adminId, data.limit, data.offset);
   }
 
   // ---------------------------- Event Functions -----------------------------
   // se invoca en: Cart/getCart
   @MessagePattern({ cmd: 'get_product_from_list'})
   async getProductsFromList(@Payload() data: { productIds: string[]}): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getProductsFromList(data.productIds);
+    return this.eventService.getProductsFromList(data.productIds);
   }
 
   // se invoca en: Account/[deleted, banned, suspended]
   @EventPattern({ cmd: 'delete.account.data' })
   async deleteAccountData(@Payload() data: { accountId: string }): Promise<void> {
-    this.productService.deleteAccountData(data.accountId);
+    this.eventService.deleteAccountData(data.accountId);
   }
 
   // se invoca en: Cart/makeReserve / Order/createDraftOrder
   @MessagePattern({ cmd: 'reserve' })
   async reserve(@Payload() data: { products: {productId: string, amount: number}[] }): Promise<SuccessDto<ProductOrderDto[] | UnavailableProductsDto[]>> {
-    return this.productService.reserve(data.products);
+    return this.eventService.reserve(data.products);
   }
 
   // se invoca en Order/restoreStock
   @MessagePattern({ cmd: 'restore_stock' })
   async restoreStock(@Payload() data: { products: {productId: string, amount: number}[], token: TransactionDto }): Promise<void> {
     if(data.token){
-      const result = await this.productService.check(data.token);
+      const result = await this.generalService.check(data.token);
       if(result === 'failed')
         return;
 
       if(result === 'completed')
         return;
     };
-    return this.productService.restoreStock(data.products, data.token);
+    return this.eventService.restoreStock(data.products, data.token);
   }
 
   // se invoca en: Cart/addToCart
   @MessagePattern({ cmd: 'is_active' })
   async isActive(@Payload() data: { productId: string }): Promise<SuccessDto<void>> {
-    return this.productService.isActive(data.productId);
+    return this.eventService.isActive(data.productId);
   }
 
   @MessagePattern({ cmd: 'get_account_products'})
   async getAccountProducts(@Payload() data:{ id: string }): Promise<SuccessDto<PartialProductDto[]>> {
-    return this.productService.getAccountProducts(data.id);
+    return this.eventService.getAccountProducts(data.id);
   }
 
 

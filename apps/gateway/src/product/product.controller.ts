@@ -52,13 +52,18 @@ export class ProductController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(201)
   async addProduct(
-    @Body() product: CreateProductDto,
+    @Body() newProduct: CreateProductDto,
     @User() data: JwtPayload
-  ): Promise<ProductDto | string> {
+  ): Promise<ProductDto | {product: string}> {
     if(data.role === ERole.User || getRoleGroup(data.role) === ERole.Admin){
       throw new ForbiddenException();
     }
-    return this.productService.addProduct(data.accountId, product); 
+    const product = await this.productService.addProduct(data.accountId, newProduct)
+    if(product instanceof ProductDto){
+      return product;
+    }else{
+      return {product};
+    };
   }
 
   @Get('/me')

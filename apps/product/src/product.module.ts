@@ -6,6 +6,10 @@ import { dbSchema, productEntities } from '@app/lib';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RedisModule } from '@app/redis';
 import { RabbitProxyModule } from '@app/rabit-proxy';
+import { AdminService } from './admin.service';
+import { EventService } from './event.service';
+import { GeneralService } from './general.service';
+import { ReviewService } from './review.service';
 
 @Module({
   imports: [
@@ -45,6 +49,7 @@ import { RabbitProxyModule } from '@app/rabit-proxy';
     ])
   ],
   controllers: [ProductController],
-  providers: [ProductService],
+  providers: [ProductService, AdminService, 
+    EventService, GeneralService, ReviewService]
 })
 export class ProductModule {}

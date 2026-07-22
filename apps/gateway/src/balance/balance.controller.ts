@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, ParseIntPipe, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, ParseFloatPipe, Post, UseGuards } from "@nestjs/common";
 import { BalanceService } from "./balance.service";
 import { IncomeDto, WithdrawalDto } from "@app/lib";
 import { User } from "../decorators/authGuard.decorator";
@@ -22,7 +22,7 @@ export class BalanceController {
     @HttpCode(201)
     async withdraw(
         @User('accountId') accountId: string,
-        @Body('amount', ParseIntPipe) amount: number
+        @Body('amount', ParseFloatPipe) amount: number
     ): Promise<WithdrawalDto | void>{
         return this.balanceService.withdraw(accountId, amount);
     };

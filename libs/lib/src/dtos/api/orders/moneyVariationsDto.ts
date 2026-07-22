@@ -6,6 +6,6 @@ export class MoneyVariations {
     constructor(since: Date, until: Date, total: number){
         this.since = new Date(since);
         this.until = new Date(until);
-        this.total = total;
+        this.total = Number(total);
     }
 }

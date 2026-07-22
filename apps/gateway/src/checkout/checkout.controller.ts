@@ -1,6 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, 
-    Get, HttpCode, Param, ParseBoolPipe, ParseUUIDPipe, Post, Query, Req, 
-    UseGuards } from "@nestjs/common";
+    Get, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from "@nestjs/common";
 import { CheckoutService } from "./checkout.service";
 import { CreateDraftOrderDto, DraftOrderOutputDto, ERole, getRoleGroup, 
     UnavailableProductsDto, WebhookDto } from "@app/lib";
@@ -42,8 +41,9 @@ export class CheckoutController {
     @UseGuards(JwtAuthGuard)
     async draftOrderStatus (
         @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
-    ): Promise<string> {
-        return this.checkoutService.getDraftOrderStatus(draftOrderId);
+    ): Promise<{status: string}> {
+        const status = await this.checkoutService.getDraftOrderStatus(draftOrderId);
+        return {status};
     }
 
     @Post('/order/:draftOrderId')
@@ -85,14 +85,27 @@ export class CheckoutController {
         }
     }
 
+    //----------------------- TEST ENDPOINT ----------------------//
+    @Post('/test/purchase/:draftOrderId')
+    @UseGuards(JwtAuthGuard)
+    @HttpCode(201)
+    async makeTestPurchase(
+        @User('accountId') accountId: string,
+        @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
+    ): Promise<void>{
+        await this.checkoutService.testPurchase(accountId, draftOrderId);
+    };
+    //-----------------------------------------------------------//
+
     @Post('/:draftOrderId')
     @UseGuards(JwtAuthGuard)
     @HttpCode(201)
     async createPaymentLink(
         @User('accountId') accountId: string,
         @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
-    ): Promise<string> {
-        return this.checkoutService.createPaymentLink(accountId, draftOrderId);
+    ): Promise<{link: string}> {
+        const link = await this.checkoutService.createPaymentLink(accountId, draftOrderId);
+        return {link};
     };
     
     @Delete('/:draftOrderId')
@@ -102,6 +115,6 @@ export class CheckoutController {
         @User('accountId') accountId: string,
         @Param('draftOrderId', ParseUUIDPipe) draftOrderId: string
     ): Promise<void> {
-        return this.checkoutService.cancelDraftOrder(accountId, draftOrderId);
+        return this.checkoutService.cancelDraftOrder(draftOrderId, accountId);
     };
 }

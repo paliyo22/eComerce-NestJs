@@ -26,9 +26,9 @@ export class CartOutputDto {
                 cartProductId: aux.id, 
                 productId: p.id,
                 title: p.title,
-                price: p.price,
-                amount: aux.amount,
-                discount: p.discountPercentage
+                price: Number(p.price),
+                amount: Number(aux.amount),
+                discount: Number(p.discountPercentage)
             };
         }).filter(Boolean);
     };

@@ -4,9 +4,8 @@ import { Repository } from 'typeorm';
 import { SuccessDto, OrderDto, DraftOrder, OrderItem, Order, DraftOrderOutputDto, 
   CreateDraftOrderDto, withRetry, ProductOrderDto, DraftItem, EStateStatus, 
   PartialOrderDto, SaleDto, UnavailableProductsDto, errorMessage, badRequest, 
-  unauthorized, notFound, expired, MoneyVariations, PartialAccountDto, 
-  TransactionDto,
-  uuidTransformer} from '@app/lib';
+  unauthorized, notFound, expired, MoneyVariations, PartialAccountDto, TransactionDto,
+  uuidTransformer } from '@app/lib';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, from } from 'rxjs';
 import Redis from 'ioredis';
@@ -87,10 +86,11 @@ export class OrderService {
     });
   }
 
-  private async restoreStock(products: {id: string, amount: number}[]): Promise<void> {
+  private async restoreStock(products: {productId: string, amount: number}[]): Promise<void> {
     const token = new TransactionDto(uuidv4(), true, EStateStatus.Pending);
     const cacheKey = `transaction:${token.uuid}`;
     try {
+      console.log('datos de entrada en restore stock:', products);
       await firstValueFrom(
         this.productClient.send<void>(
           { cmd: 'restore_stock' },
@@ -98,6 +98,7 @@ export class OrderService {
         ).pipe(withRetry(5, 60000, this.config.get<number>('MESSAGE_TIMEOUT')))
       );
     } catch (err: any) {
+      console.log('error en restore stock:', err);
       const cache = await this.redis.get(cacheKey).catch(() => undefined);
       if(cache){
         const transaction = JSON.parse(cache) as TransactionDto;
@@ -111,13 +112,14 @@ export class OrderService {
   }
 
   private async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
+    console.log(`datos de entrada en deleteProductsFromCart: \naccountId: ${accountId} \nitems: `, items);
     await firstValueFrom(
-      this.productClient.send<void>(
+      this.cartClient.send<void>(
         { cmd: 'delete_products_from_cart' },
         { accountId, items }
       )
-    ).catch(() => {
-      this.logger.log(`Error trying to delete the products from cart after the purchase`);
+    ).catch((err) => {
+      this.logger.error(`Error trying to delete the products from cart after the purchase`, err);
     });
   }  
 
@@ -197,9 +199,9 @@ export class OrderService {
   }
 
   async createDraftOrder(accountId: string, dto: CreateDraftOrderDto): Promise<SuccessDto<DraftOrderOutputDto | UnavailableProductsDto[]>> {
-    let productIds: {id: string, amount: number}[] = [];
+    let productIds: {productId: string, amount: number}[] = [];
     try {
-      const shippingAddress = `${dto.address} ${dto.apartment} \n${dto.zip}, ${dto.city}, ${dto.country}`;
+      const shippingAddress = `${dto.address} ${dto.apartment ?? ''} | ${dto.zip} | ${dto.city}, ${dto.country}.`;
       const accounts = await firstValueFrom(
         this.accountClient.send<SuccessDto<PartialAccountDto[]>>(
           { cmd: 'get_partial_account_list_info' },
@@ -254,24 +256,24 @@ export class OrderService {
       const productOrder = result.data! as ProductOrderDto[];
       productIds = productOrder.map((i) => {
           return {
-            id: i.productId,
+            productId: i.productId,
             amount: i.amount
           };
         });
       let total = 0;
       productOrder.forEach((i) => {
-        total += i.getSubTotal();
+        total =  (Math.round(total * 100) + Math.round(((i.amount * Math.round(i.price * 100)) / 100) * (1 - i.discountPercentage / 100) * 100)) / 100;
       });
 
-      const draftOrder = await this.orderRepo.manager.transaction(async manager => {
+      const draftOrder = await this.draftRepo.manager.transaction(async manager => {
         const createDraftOrder = manager.create(DraftOrder, {
           accountId: accountId,
           total: total,
           shippingAddress,
           contactEmail: account.email
         }); 
-        await manager.save(createDraftOrder);
-
+        const draft = await manager.save(createDraftOrder, {reload: false});
+    
         const items = manager.create(DraftItem, productOrder.map((i) => {
           return{
             draftOrderId: createDraftOrder.id,
@@ -282,17 +284,28 @@ export class OrderService {
             price: i.price,
             amount: i.amount,
             discountPercentage: i.discountPercentage,
-            subtotal: i.getSubTotal()
+            subtotal: Math.round(((i.amount * Math.round(i.price * 100)) / 100) * (1 - i.discountPercentage / 100) * 100) / 100
           }
         }))
-        await manager.save(items);
+        const draftItems = await manager.save(items, { reload: false });
+        draft.items = draftItems;
 
-        return createDraftOrder;
+        return draft;
       });
 
       const data = new DraftOrderOutputDto(draftOrder);
-      const cacheKey = `draftOrder:${draftOrder.id}`;
-      await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
+
+      this.draftRepo.createQueryBuilder('d')
+        .leftJoinAndSelect('d.items', 'i')
+        .where('d.id = :id', { id: uuidTransformer.to(draftOrder.id) })
+        .getOne()
+        .then((draft) => {
+          if(draft){
+            const cacheKey = `draftOrder:${draft.id}`;
+            return this.redis.set(cacheKey, JSON.stringify(draft), 'EX', 30);
+          }
+        }).catch((err) => this.logger.warn(`No se pudo repoblar cache de draftOrder ${draftOrder.id}: ${err?.message ?? err}`));
+      
 
       return {
         success: true,
@@ -317,9 +330,10 @@ export class OrderService {
         if(!draft) return notFound;
         
         if(draft.status !== EStateStatus.Pending){
-          await manager.createQueryBuilder(DraftOrder, 'd')
+          await manager.createQueryBuilder()
             .delete()
-            .where('d.id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
+            .from(DraftOrder)
+            .where('id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
             .execute()
         }
 
@@ -342,18 +356,23 @@ export class OrderService {
       
       let draft: DraftOrder | undefined = undefined;
       if(cached){
-        draft = JSON.parse(cached) as DraftOrder 
+        draft = JSON.parse(cached) as DraftOrder;
+        console.log('draft de cache: ', draft);
       }else{
         draft = await this.draftRepo
-          .createQueryBuilder('d')
-          .where('d.id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
+          .createQueryBuilder()
+          .where('id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
           .getOne();
+        console.log('draft de db: ', draft);
       }
+
+      console.log('accountId recivido: ', accountId);
+      console.log('draftOrderId recivido: ', draftOrderId);
 
       if (!draft) {
         return notFound
       };
-      
+
       if(draft.accountId !== accountId){
         return unauthorized;
       };
@@ -388,10 +407,10 @@ export class OrderService {
         if(accountId && accountId !== draftOrder.accountId) 
           return undefined;
 
-        await manager.createQueryBuilder(DraftOrder, 'd')
+        await manager.createQueryBuilder()
           .update(DraftOrder)
           .set({ status: EStateStatus.Failed })
-          .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
+          .where('id = :id', { id: uuidTransformer.to(draftOrderId) })
           .execute();
 
         return draftOrder;
@@ -408,7 +427,7 @@ export class OrderService {
       
       const productIds = draft.items.map((i) => {
         return {
-          id: i.productId,
+          productId: i.productId,
           amount: i.amount
         }
       });
@@ -466,7 +485,7 @@ export class OrderService {
             .catch(() => {});
           return unauthorized;
         };
-        if(draftOrder.total !== 0){
+        if(Number(draftOrder.total) !== 0){
           token.status = EStateStatus.Failed;      
           await firstValueFrom(
             from(this.redis.set(cacheKey, JSON.stringify(token), 'KEEPTTL'))
@@ -477,12 +496,6 @@ export class OrderService {
       };
 
       const items = await this.orderRepo.manager.transaction(async manager => {
-        await manager.createQueryBuilder(DraftOrder, 'd')
-          .update(DraftOrder)
-          .set({ status: EStateStatus.Completed })
-          .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
-          .execute();
-
         const order = manager.create(Order, {
           accountId: draftOrder.accountId,
           draftOrderId: draftOrder.id,
@@ -490,7 +503,7 @@ export class OrderService {
           shippingAddress: draftOrder.shippingAddress,
           contactEmail: draftOrder.contactEmail
         }); 
-        await manager.save(order);
+        await manager.save(order, { reload: false });
 
         const items = manager.create(OrderItem, draftOrder.items.map((i) => {
           return {
@@ -505,14 +518,20 @@ export class OrderService {
             subtotal: i.subtotal
           }
         }));
-        return await manager.save(items);
+
+        await manager.createQueryBuilder()
+          .update(DraftOrder)
+          .set({ status: EStateStatus.Completed, orderId: order.id })
+          .where('id = :id', { id: uuidTransformer.to(draftOrderId) })
+          .execute();
+        return await manager.save(items, { reload: false });
       });
 
-      if(draftOrder.total !== 0){
+      if(Number(draftOrder.total) !== 0){
         this.addToBalance(items);
       };
 
-      await this.deleteProductsFromCart(draftOrder.accountId, items);
+      this.deleteProductsFromCart(draftOrder.accountId, items);
       await this.redis.del(`draftOrder:${draftOrderId}`).catch(() => {});
 
       token.status = EStateStatus.Completed;
@@ -583,8 +602,10 @@ export class OrderService {
       const orders = await this.orderRepo
         .createQueryBuilder('o')
         .where('o.accountId = :accountId', { accountId: uuidTransformer.to(accountId) })
+        .orderBy('o.created', 'DESC')
         .getMany();
 
+      console.log('shopping list: ', orders);
       const data = orders.map((o) => new PartialOrderDto(o));
       if(data.length){
         await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
@@ -613,6 +634,7 @@ export class OrderService {
         .createQueryBuilder('i')
         .leftJoinAndSelect('i.order', 'o')
         .where('i.sellerId = :accountId', { accountId: uuidTransformer.to(accountId) })
+        .orderBy('o.created', 'DESC')
         .getMany();
 
       const data = sales.map((i) => new SaleDto(i));
@@ -631,18 +653,18 @@ export class OrderService {
 
   async getOutgo(accountId: string, since?: Date, until?: Date): Promise<SuccessDto<MoneyVariations>> {
     try {
-      if(!since && until){ 
+      if(!since && until){
         return badRequest;
-      };
-
-      if(!since && !until){
+      }else if(!since && !until){
         since = new Date();
         until = new Date();
         this.getDefaultDateRange(since);
-      };
-
-      if(since && !until){
+      }else if(since && !until){
+        since = new Date(since);
         until = new Date();
+      }else{
+        since = new Date(since);
+        until = new Date(until);
       };
       
       const shoppings = await this.orderRepo
@@ -651,10 +673,11 @@ export class OrderService {
         .andWhere('o.created BETWEEN :since AND :until', { since, until })
         .getMany();
 
-      let total = 0; 
+      let totalCents = 0; 
       shoppings.forEach((o) => {
-        total += o.total;
+        totalCents += Math.round(Number(o.total) * 100);
       });
+      const total = totalCents / 100;
 
       return {
         success: true,
@@ -669,18 +692,18 @@ export class OrderService {
     try {
       if(!since && until){
         return badRequest;
-      };
-
-      if(!since && !until){
+      }else if(!since && !until){
         since = new Date();
         until = new Date();
         this.getDefaultDateRange(since);
+      }else if(since && !until){
+        since = new Date(since);
+        until = new Date();
+      }else{
+        since = new Date(since);
+        until = new Date(until);
       };
 
-      if(since && !until){
-        until = new Date();
-      };
-      
       const sales = await this.orderItemRepo
         .createQueryBuilder('i')
         .leftJoinAndSelect('i.order', 'o')
@@ -688,16 +711,91 @@ export class OrderService {
         .andWhere('o.created BETWEEN :since AND :until', { since, until })
         .getMany();
 
-      let total = 0; 
+      let totalCents = 0; 
       sales.forEach((i) => {
-        total += i.subtotal;
+        totalCents += Math.round(Number(i.subtotal) * 100);
       });
+      const total = totalCents / 100;
 
       return {
         success: true,
         data: new MoneyVariations(since, until, total)
       }
     } catch (err: any) {
+      return errorMessage(OrderService.name, err);
+    }
+  }
+
+
+
+
+
+
+
+
+
+  //-------------------- TEST ------------------------------------------------
+
+  async createTestPurchase(accountId: string, draftOrderId: string): Promise<SuccessDto<void>>{
+    try {
+      const draftOrder = await this.draftRepo
+        .createQueryBuilder('d')
+        .innerJoinAndSelect('d.items', 'i')
+        .where('d.id = :id', { id: uuidTransformer.to(draftOrderId) })
+        .getOne();
+
+      if(!draftOrder){
+        return badRequest;
+      };
+         
+      if(accountId !== draftOrder.accountId){
+        return unauthorized;
+      };
+
+      const items = await this.orderRepo.manager.transaction(async manager => {
+        const order = manager.create(Order, {
+          accountId: draftOrder.accountId,
+          draftOrderId: draftOrder.id,
+          total: draftOrder.total,
+          shippingAddress: draftOrder.shippingAddress,
+          contactEmail: draftOrder.contactEmail
+        }); 
+        const aux = await manager.save(order, { reload: false });
+        console.log('resultado de la creacion de order: ', aux);
+
+        const items = manager.create(OrderItem, draftOrder.items.map((i) => {
+          return {
+            orderId: order.id,
+            productId: i.productId,
+            sellerId: i.sellerId,
+            productTitle: i.productTitle,
+            sellerTitle: i.sellerTitle,
+            price: i.price,
+            amount: i.amount,
+            discountPercentage: i.discountPercentage,
+            subtotal: i.subtotal
+          }
+        }));
+
+        await manager.createQueryBuilder()
+          .update(DraftOrder)
+          .set({ status: EStateStatus.Completed, orderId: order.id })
+          .where('id = :id', { id: uuidTransformer.to(draftOrderId) })
+          .execute();
+          
+        return await manager.save(items, { reload: false });
+      });
+
+      if(Number(draftOrder.total) !== 0){
+        this.addToBalance(items);
+      };
+
+      this.deleteProductsFromCart(draftOrder.accountId, items);
+      await this.redis.del(`draftOrder:${draftOrderId}`).catch(() => {});
+
+      return {success: true};
+    } catch (err) {
+      console.log('catch del createTestPurchase: ', err);
       return errorMessage(OrderService.name, err);
     }
   }

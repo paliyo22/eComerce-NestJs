@@ -23,12 +23,13 @@ create table draft_order(
 	account_id binary(16) not null,
 	total decimal(10,2) not null,
 	created datetime not null default(current_timestamp()),
+    contact_email varchar(100) not null,
     shipping varchar(250) not null,
     order_id binary(16),
     status enum('pending', 'completed', 'failed') not null default('pending'),
 	index idx_account (account_id),
 	index idx_created (created),
-    check (total > 0),
+    check (total >= 0),
     foreign key (order_id) references purchase_order(id)
 );
 

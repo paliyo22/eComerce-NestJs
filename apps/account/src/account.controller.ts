@@ -1,4 +1,4 @@
-import { Controller, Inject } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { AccountService } from './account.service';
 import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { SuccessDto, PartialAccountDto, AddressDto, CreateAddressDto, 
@@ -6,26 +6,40 @@ import { SuccessDto, PartialAccountDto, AddressDto, CreateAddressDto,
   CreateAccountDto, UpdateAccountDto, WithdrawalDto, TransactionDto, 
   IncomeDto} from '@app/lib';
 import { PublicAccountDto } from '@app/lib/dtos/api/account/publicAccountDto';
+import { GeneralService } from './general.service';
+import { AuthService } from './auth.service';
+import { AdminService } from './admin.service';
+import { EventService } from './event.service';
+import { AddressService } from './address.service';
+import { StoreService } from './store.service';
+import { BalanceService } from './balance.service';
 
 @Controller()
 export class AccountController {
   constructor(
-    private readonly accountService: AccountService
+    private readonly accountService: AccountService,
+    private readonly generalService: GeneralService,
+    private readonly authService: AuthService,
+    private readonly adminService: AdminService,
+    private readonly eventService: EventService,
+    private readonly addressService: AddressService,
+    private readonly storeService: StoreService,
+    private readonly balanceService: BalanceService,
   ) {}
   
   @MessagePattern({ cmd: 'log_in' })
   async logIn(@Payload() data: { account: string, password: string, ip: string, device: string}): Promise<SuccessDto<PartialAccountDto>> {
-    return this.accountService.logIn(data.account, data.password, data.ip, data.device);
+    return this.authService.logIn(data.account, data.password, data.ip, data.device);
   }
 
   @EventPattern('log.out')
   logOut(@Payload() data: { accountId: string, device: string }): void {
-    this.accountService.logOut(data.accountId, data.device);
+    this.authService.logOut(data.accountId, data.device);
   }
 
   @MessagePattern({ cmd: 'refresh' })
   async refresh(@Payload() data: { accountId: string, refreshToken: string, ip: string, device: string }): Promise<SuccessDto<PartialAccountDto>> {
-    return this.accountService.refresh(data.accountId, data.refreshToken, data.ip, data.device);
+    return this.authService.refresh(data.accountId, data.refreshToken, data.ip, data.device);
   }
 
   @MessagePattern({ cmd: 'get_info' })
@@ -62,58 +76,58 @@ export class AccountController {
 
   @MessagePattern({ cmd: 'get_addresses' })
   async getAddress(@Payload() data: { accountId: string }): Promise<SuccessDto<AddressDto[]>> {
-    return this.accountService.getAddress(data.accountId);
+    return this.addressService.getAddress(data.accountId);
   }
 
   @MessagePattern({ cmd: 'add_address' })
   async addAddress(@Payload() data: { accountId: string, address: CreateAddressDto }): Promise<SuccessDto<AddressDto>> {
-    return this.accountService.addAddress(data.accountId, data.address);
+    return this.addressService.addAddress(data.accountId, data.address);
   }
 
   @MessagePattern({ cmd: 'delete_address' })
   async deleteAddress(@Payload() data: { accountId: string, addressId: string }): Promise<SuccessDto<void>> {
-    return this.accountService.deleteAddress(data.accountId, data.addressId);
+    return this.addressService.deleteAddress(data.accountId, data.addressId);
   }
 
   @MessagePattern({ cmd: 'get_stores' })
   async getStore(@Payload() data: { accountId?: string, username?: string }): Promise<SuccessDto<StoreDto[]>> {
-    return this.accountService.getStores(data.accountId, data.username);
+    return this.storeService.getStores(data.accountId, data.username);
   }
 
   @MessagePattern({ cmd: 'add_store' })
   async addStore(@Payload() data: { accountId: string, store: CreateStoreDto }): Promise<SuccessDto<StoreDto>> {
-    return this.accountService.addStore(data.accountId, data.store);
+    return this.storeService.addStore(data.accountId, data.store);
   }
 
   @MessagePattern({ cmd: 'delete_store' })
   async deleteStore(@Payload() data: { accountId: string, storeId: string }): Promise<SuccessDto<void>> {
-    return this.accountService.deleteStore(data.accountId, data.storeId);
+    return this.storeService.deleteStore(data.accountId, data.storeId);
   }
 
   @MessagePattern({ cmd: 'get_balance' })
   async getBalance(@Payload() data: { accountId: string }): Promise<SuccessDto<number>> {
-    return this.accountService.getBalance(data.accountId);
+    return this.balanceService.getBalance(data.accountId);
   }
 
   @MessagePattern({ cmd: 'get_withdrawal_list' })
   async getWithdrawals(@Payload() data: { accountId: string }): Promise<SuccessDto<WithdrawalDto[]>> {
-    return this.accountService.getWithdrawals(data.accountId);
+    return this.balanceService.getWithdrawals(data.accountId);
   }
 
   @MessagePattern({ cmd: 'get_income_list' })
   async getIncomes(@Payload() data: { accountId: string }): Promise<SuccessDto<IncomeDto[]>> {
-    return this.accountService.getIncomes(data.accountId);
+    return this.balanceService.getIncomes(data.accountId);
   }
 
   @MessagePattern({ cmd: 'withdraw' })
   async withdraw(@Payload() data: { accountId: string, amount: number, token: TransactionDto }): Promise<SuccessDto<WithdrawalDto>> {
-    const result = await this.accountService.check(data.token);
+    const result = await this.generalService.check(data.token);
     if(result === 'failed')
       return { success: false, message: 'INTERNAL_ERROR', code: 500 };
 
     if(result === 'completed')
       return { success: true };
-    return this.accountService.withdraw(data.accountId, data.amount, data.token);
+    return this.balanceService.withdraw(data.accountId, data.amount, data.token);
   }
 
   @MessagePattern({ cmd: 'get_public_account' })
@@ -133,81 +147,85 @@ export class AccountController {
   //------------------ ADMIN FUNCTIONS -------------------------------
   @MessagePattern({ cmd: 'get_active_list' })
   async getAccountList(@Payload() data:{adminId: string, offset?: number, limit?: number}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
-    return this.accountService.getActiveList(data.adminId, data.offset, data.limit);
+    return this.adminService.getActiveList(data.adminId, data.offset, data.limit);
   }
   
   @MessagePattern({ cmd: 'get_banned_list' })
   async getBannedList(@Payload() data:{adminId: string, offset?: number, limit?: number}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
-    return this.accountService.getBannedList(data.adminId, data.offset, data.limit);
+    return this.adminService.getBannedList(data.adminId, data.offset, data.limit);
   }
 
   @MessagePattern({ cmd: 'get_suspended_list' })
   async getSuspendedList(@Payload() data:{adminId: string, offset?: number, limit?: number}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
-    return this.accountService.getSuspendedList(data.adminId, data.offset, data.limit);
+    return this.adminService.getSuspendedList(data.adminId, data.offset, data.limit);
   }
 
   @MessagePattern({ cmd: 'get_inactive_list' })
   async getInactiveList(@Payload() data:{adminId: string, offset?: number, limit?: number}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
-    return this.accountService.getInactiveList(data.adminId, data.offset, data.limit);
+    return this.adminService.getInactiveList(data.adminId, data.offset, data.limit);
   }
 
   @MessagePattern({ cmd: 'search_account' })
   async search(@Payload() data:{adminId: string, contains: string}): Promise<SuccessDto<PartialAccountOutputDto[]>> {
-    return this.accountService.search(data.adminId, data.contains);
+    return this.adminService.search(data.adminId, data.contains);
   }
 
   @MessagePattern({ cmd: 'get_account_info' })
-  async getAccountInfo(@Payload() data:{password: string, username: string}): Promise<SuccessDto<AccountOutputDto>> {
-    return this.accountService.getAccountInfo(data.password, data.username);
+  async getAccountInfo(@Payload() data:{adminId: string, username: string}): Promise<SuccessDto<AccountOutputDto>> {
+    return this.adminService.getAccountInfo(data.adminId, data.username);
   }
 
   @MessagePattern({ cmd: 'create_admin' })
-  async createAdmin(@Payload() data:{password: string, account: CreateAccountDto}): Promise<SuccessDto<void>> {
-    return this.accountService.addAdmin(data.password, data.account);
+  async createAdmin(@Payload() data:{adminId: string, account: CreateAccountDto}): Promise<SuccessDto<void>> {
+    return this.adminService.addAdmin(data.adminId, data.account);
   }
 
   @MessagePattern({ cmd: 'ban_account' })
   async banAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.accountService.banAccount(data.adminId, data.mail);
+    return this.adminService.banAccount(data.adminId, data.mail);
   }
 
   @MessagePattern({ cmd: 'unban_account' })
   async restoreAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.accountService.restoreAccount(data.adminId, data.mail);
+    return this.adminService.restoreAccount(data.adminId, data.mail);
   }
 
   @MessagePattern({ cmd: 'suspend_account' })
   async suspendAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.accountService.suspendAccount(data.adminId, data.mail);
+    return this.adminService.suspendAccount(data.adminId, data.mail);
   }
   
   //------------------ EVENT FUNCTIONS -------------------------------
   // se invoca en: Product/getProductById
   @MessagePattern({ cmd: 'get_account_list_info' })
   async getAccountListInfo(@Payload() data:{ accountIds: string[] }): Promise<SuccessDto<AccountDto[]>> {
-    return this.accountService.getAccountListInfo(data.accountIds);
+    return this.eventService.getAccountListInfo(data.accountIds);
   }
 
   // se invoca en: Product/addReview
   @MessagePattern({ cmd: 'get_partial_account_list_info' })
   async getPartialAccountListInfo(@Payload() data:{ accountIds: string[] }): Promise<SuccessDto<PartialAccountDto[]>> {
-    return this.accountService.getPartialAccountListInfo(data.accountIds);
+    return this.eventService.getPartialAccountListInfo(data.accountIds);
   }
 
   // se invoca en: Order/setOrder
   @MessagePattern({ cmd: 'add_to_account_balance' })
   async addToBalance(@Payload() data:{ accounts: {accountId: string, balance: number, orderId: string}[], token: TransactionDto }): Promise<void>{
     if(data.token){
-      const result = await this.accountService.check(data.token);
+      const result = await this.generalService.check(data.token);
       if(result === 'failed')
         return;
 
       if(result === 'completed')
         return;
     };
-    return this.accountService.addToBalance(data.accounts, data.token);
+    return this.eventService.addToBalance(data.accounts, data.token);
   }
 
+  @MessagePattern({ cmd: 'is_admin' })
+  async isAdmin(@Payload() data:{ adminId: string }): Promise<SuccessDto<void>> {
+    return this.eventService.isAdmin(data.adminId);
+  }
 
 
 

@@ -47,7 +47,7 @@ export class CheckoutService {
                     title: 'EComerce de Palito',
                     quantity: 1,
                     currency_id: 'ARS',
-                    unit_price: draftOrder.data.total,
+                    unit_price: Number(draftOrder.data.total),
                 }],
                 payer: {
                     email: draftOrder.data.contactEmail
@@ -67,7 +67,9 @@ export class CheckoutService {
             const response = await firstValueFrom(
                 from(preference.create({ body }))
                 .pipe(withRetry(3)))
-                .catch(() => { throw new HttpException('INTERNAL_ERROR', 500) });
+                .catch(() => { 
+                    throw new HttpException('INTERNAL_ERROR', 500) 
+                });
 
             return response.init_point;
         } catch (err) {
@@ -83,7 +85,7 @@ export class CheckoutService {
             .pipe(withRetry(3, 60000, 600000)))
             .catch(() => undefined);
         if(!paymentData){
-            this.logger.error(`Fail to recober the result of the payment: ${id}`);
+            this.logger.error(`Fail to recober the result of the payment: `, id);
         }else{
             const token = new TransactionDto(uuidv4(), true, EStateStatus.Pending);
             const cacheKey = `transaction:${token.uuid}`;
@@ -96,17 +98,17 @@ export class CheckoutService {
                         ).pipe(withRetry(5, 60000, this.config.get<number>('MESSAGE_TIMEOUT')))
                     );
                     if(!result.success){
-                        this.logger.fatal(`The paid order could not be processed: ${paymentData}`);
+                        this.logger.fatal(`The paid order could not be processed: `, paymentData);
                     }
                 } catch (err) {
                     const cache = await this.redis.get(cacheKey).catch(() => undefined);
                     if(cache){
                         const transaction = JSON.parse(cache) as TransactionDto;
                         if(transaction.status !== EStateStatus.Completed){
-                            this.logger.fatal(`The paid order could not be processed: ${paymentData}`);
+                            this.logger.fatal(`The paid order could not be processed: `, paymentData);
                         }
                     }else{
-                        this.logger.warn(`Error caching transaction trace ${paymentData}`);
+                        this.logger.warn(`Error caching transaction trace: `, paymentData);
                     };
                 }
             }else {
@@ -119,17 +121,17 @@ export class CheckoutService {
                     );
 
                     if(!result.success){
-                        this.logger.log(`The unpaid order could not be processed: ${paymentData}`);
+                        this.logger.log(`The unpaid order could not be processed: `, paymentData);
                     }
                 } catch (err) {
                     const cache = await this.redis.get(cacheKey).catch(() => undefined);
                     if(cache){
                         const transaction = JSON.parse(cache) as TransactionDto;
                         if(transaction.status !== EStateStatus.Completed){
-                            this.logger.log(`The unpaid order could not be processed: ${paymentData}`);
+                            this.logger.log(`The unpaid order could not be processed: `, paymentData);
                         }
                     }else{
-                        this.logger.warn(`Error caching transaction trace ${paymentData}`);
+                        this.logger.warn(`Error caching transaction trace: `, paymentData);
                     };
                 }
                 
@@ -148,7 +150,7 @@ export class CheckoutService {
             const result = await firstValueFrom(
                 this.orderClient.send<SuccessDto<void>>(
                     { cmd: 'create_order' },
-                    { draftOrderId, accountId, token }
+                    { draftOrderId, token, accountId }
                 ).pipe(withRetry())
             );
 
@@ -157,13 +159,13 @@ export class CheckoutService {
             };
         } catch (err) {
             const cache = await this.redis.get(cacheKey).catch(() => undefined);
-            if(cache){
+            if(!(err instanceof HttpException) && cache){
                 const transaction = JSON.parse(cache) as TransactionDto;
                 if(transaction.status === EStateStatus.Completed){
                     return;
                 };
                 if(transaction.status === EStateStatus.Failed){
-                    throw errorManager(err, CheckoutService.name);
+                    throw new HttpException('INTERNAL_ERROR', 500);
                 };
                 throw new HttpException({
                     message: 'TRANSACTION_PENDING',
@@ -193,13 +195,13 @@ export class CheckoutService {
             };
         }catch(err: any){
             const cache = await this.redis.get(cacheKey).catch(() => undefined);
-            if(cache){
+            if(!(err instanceof HttpException) && cache){
                 const transaction = JSON.parse(cache) as TransactionDto;
                 if(transaction.status === EStateStatus.Completed){
                     return;
                 };
                 if(transaction.status === EStateStatus.Failed){
-                    throw errorManager(err, CheckoutService.name);
+                    throw new HttpException('INTERNAL_ERROR', 500);
                 };
                 throw new HttpException({
                     message: 'TRANSACTION_PENDING',
@@ -250,4 +252,20 @@ export class CheckoutService {
             throw errorManager(err, CheckoutService.name);
         }
     }   
+
+    // -------------------------- TEST ------------------------------------
+    async testPurchase(accountId: string, draftOrderId: string): Promise<void>{
+        try {
+            const result = await firstValueFrom(
+                this.orderClient.send<SuccessDto<void>>(
+                    { cmd: 'test_purchase' },
+                    { accountId, draftOrderId }
+                ).pipe(withRetry())
+            );
+
+            if(!result.success) throw new HttpException(result.message!, result.code!);
+        } catch (err) {
+            throw errorManager(err, CheckoutService.name);
+        }
+    }
 }

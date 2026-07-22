@@ -48,8 +48,9 @@ export class CartController {
     this.cartService.deleteProductsFromCarts(data.productIds);
   }
 
-  @MessagePattern('delete_products_from_cart')
+  @MessagePattern({ cmd:'delete_products_from_cart'})
   async deleteProductsFromCart(@Payload() data: { accountId: string, items: OrderItem[] }): Promise<void>{
+    console.log('controllador: ', data);
     return this.cartService.deleteProductsFromCart(data.accountId, data.items);
   }  
 }

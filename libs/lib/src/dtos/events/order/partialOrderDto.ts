@@ -8,7 +8,7 @@ export class PartialOrderDto{
     
     constructor(order: Order) {
         this.id = order.id,
-        this.total = order.total,
+        this.total = Number(order.total),
         this.shippingAddress = order.shippingAddress,
         this.created = new Date(order.created)
     }

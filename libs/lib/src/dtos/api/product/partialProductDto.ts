@@ -23,7 +23,7 @@ export class PartialProductDto {
         this.category = product.category.slug;
         this.price = Number(product.price);
         this.discountPercentage = Number(product.discountPercentage);
-        this.stock = product.stock;
+        this.stock = Number(product.stock);
         this.brand = product.brand ?? undefined;
         this.ratingAvg = Number(product.ratingAvg);
         this.tags = product.tags ? product.tags.map(t => t.title) : [];

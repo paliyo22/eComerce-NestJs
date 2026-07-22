@@ -14,9 +14,9 @@ export class ProductOrderDto {
         this.productTitle = product.title,
         this.sellerId = accountId,
         this.sellerTitle = sellerTitle,
-        this.price = product.price,
-        this.discountPercentage = product.discountPercentage,
-        this.amount = amount
+        this.price = Number(product.price),
+        this.discountPercentage = Number(product.discountPercentage),
+        this.amount = Number(amount)
     };
 
     getSubTotal(): number {

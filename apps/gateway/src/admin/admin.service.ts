@@ -90,12 +90,12 @@ export class AdminService {
         }   
     }
 
-    async searchAccount(adminId: string, contain: string): Promise<PartialAccountOutputDto[]> {
+    async searchAccount(adminId: string, contains: string): Promise<PartialAccountOutputDto[]> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<PartialAccountOutputDto[]>>(
                     {cmd: 'search_account'},
-                    { adminId, contain }
+                    { adminId, contains }
                 ).pipe(withRetry())
             ); 
 
@@ -109,12 +109,12 @@ export class AdminService {
         }   
     }
 
-    async getAccountInfo(password: string, username: string): Promise<AccountOutputDto> {
+    async getAccountInfo(adminId: string, username: string): Promise<AccountOutputDto> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<AccountOutputDto>>(
                     {cmd: 'get_account_info'},
-                    { password, username }
+                    { adminId, username }
                 ).pipe(withRetry())
             ); 
 
@@ -128,12 +128,12 @@ export class AdminService {
         }   
     }
 
-    async addAdmin(password: string, account: CreateAccountDto): Promise<void> {
+    async addAdmin(adminId: string, account: CreateAccountDto): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
                     { cmd: 'create_admin' },
-                    { password, account }
+                    { adminId, account }
                 ).pipe(withRetry())
             );
 
@@ -166,7 +166,7 @@ export class AdminService {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
-                    {cmd: 'restore_account'},
+                    {cmd: 'unban_account'},
                     { adminId, mail }
                 ).pipe(withRetry())
             ); 

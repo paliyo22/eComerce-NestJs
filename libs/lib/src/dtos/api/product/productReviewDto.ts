@@ -8,8 +8,8 @@ export class ProductReviewDto{
     constructor(username: string, productId: string, rating: number, comment?: string, created?: Date){
         this.username = username;
         this.productId = productId;
-        this.rating = rating;
+        this.rating = Number(rating);
         this.comment = comment;
-        this.created = new Date(created);
+        this.created = created ? new Date(created) : new Date();
     };
 }

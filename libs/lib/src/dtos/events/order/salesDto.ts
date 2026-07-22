@@ -13,9 +13,9 @@ export class SaleDto {
         this.productId = item.productId,
         this.buyerEmail = item.order.contactEmail,
         this.product = item.productTitle,
-        this.price = item.price,
-        this.amount = item.amount,
-        this.discount = item.discountPercentage,
-        this.subtotal = item.subtotal
+        this.price = Number(item.price),
+        this.amount = Number(item.amount),
+        this.discount = Number(item.discountPercentage),
+        this.subtotal = Number(item.subtotal)
     }
 }

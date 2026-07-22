@@ -6,7 +6,7 @@ export class IncomeDto {
     created: Date;
 
     constructor(incomes: Income){
-        this.amount = incomes.amount;
+        this.amount = Number(incomes.amount);
         this.orderId = incomes.orderId;
         this.created = incomes.created;
     }

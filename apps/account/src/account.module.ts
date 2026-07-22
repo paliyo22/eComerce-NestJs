@@ -6,6 +6,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { accountEntities, dbSchema } from '@app/lib';
 import { RedisModule } from '@app/redis';
 import { RabbitProxyModule } from '@app/rabit-proxy';
+import { AdminService } from './admin.service';
+import { AuthService } from './auth.service';
+import { EventService } from './event.service';
+import { GeneralService } from './general.service';
+import { AddressService } from './address.service';
+import { BalanceService } from './balance.service';
+import { StoreService } from './store.service';
 
 @Module({
   imports: [
@@ -45,6 +52,8 @@ import { RabbitProxyModule } from '@app/rabit-proxy';
     ])
   ],
   controllers: [AccountController],
-  providers: [AccountService]
+  providers: [AccountService, AdminService, AddressService,
+    AuthService, EventService, GeneralService, BalanceService,
+    StoreService]
 })
 export class AccountModule {}

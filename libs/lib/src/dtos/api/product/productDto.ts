@@ -32,7 +32,7 @@ export class ProductDto extends PartialProductDto {
       created: new Date(product.meta.created),
       updated: new Date(product.meta.updated)
     };
-    this.weight = product.weight;
+    this.weight = Number(product.weight);
     this.physical = product.physical;
     this.accountUsername = account.username;
     this.accountName = account.businessProfile ? account.businessProfile.title : `${account.userProfile.firstname} ${account.userProfile.lastname}`;

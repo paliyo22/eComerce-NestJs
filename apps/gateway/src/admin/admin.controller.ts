@@ -95,12 +95,12 @@ export class AdminController {
         await this.adminService.suspendAccount(accountId, mail);
     }
 
-    @Post('/account/search-account/:username')
+    @Get('/account/search-account/:username')
     async getAccountInfo(
-        @Body() password: string,
+        @User('accountId') adminId: string,
         @Param('username') username: string
     ): Promise<AccountOutputDto> {
-        return this.adminService.getAccountInfo(password, username);
+        return this.adminService.getAccountInfo(adminId, username);
     }
 
     //---------------------- PRODUCT SERVICE -----------------------

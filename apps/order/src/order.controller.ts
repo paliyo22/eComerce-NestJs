@@ -69,23 +69,18 @@ export class OrderController {
 
   @MessagePattern({ cmd: 'get_incomes' })
   async getIncome(@Payload() data: { accountId: string, since?: Date, until?: Date }): Promise<SuccessDto<MoneyVariations>> {
-    let since: Date | undefined = undefined,
-      until: Date | undefined = undefined;
-    if(data.since){
-      since = new Date(data.since),
-      until = new Date(data.until);
-    }
-    return this.orderService.getIncome(data.accountId, since, until);
+    return this.orderService.getIncome(data.accountId, data.since, data.until);
   }
 
   @MessagePattern({ cmd: 'get_outgo' })
   async getOutgo(@Payload() data: { accountId: string, since?: Date, until?: Date }): Promise<SuccessDto<MoneyVariations>> {
-    let since: Date | undefined = undefined,
-      until: Date | undefined = undefined;
-    if(data.since){
-      since = new Date(data.since),
-      until = new Date(data.until);
-    }
-    return this.orderService.getOutgo(data.accountId, since, until);
+    return this.orderService.getOutgo(data.accountId, data.since, data.until);
+  }
+
+
+  //------------------------------ TEST -----------------------------
+  @MessagePattern({ cmd: 'test_purchase' })
+  async testPurchase(@Payload() data: { accountId: string, draftOrderId: string }): Promise<SuccessDto<void>> {
+    return this.orderService.createTestPurchase(data.accountId, data.draftOrderId);
   }
 }

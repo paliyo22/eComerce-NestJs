@@ -7,7 +7,7 @@ export class DraftOrderOutputDto{
 
     constructor(item: DraftOrder) {
         this.id = item.id,
-        this.total = item.total,
+        this.total = Number(item.total),
         this.shippingAddress = item.shippingAddress
     };
 }

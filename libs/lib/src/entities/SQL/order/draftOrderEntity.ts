@@ -5,7 +5,7 @@ import { PrimaryBinaryUuidColumn } from "../../../shared/primariBinary.decorator
 import { EStateStatus } from "../../../enums/EStateStatus";
 import { DraftItem } from "./draftItemEntity";
 
-@Check(`total > 0`)
+@Check(`total >= 0`)
 @Entity('draft_order')
 @Index('idx_account', ['accountId'])
 @Index('idx_created', ['created'])

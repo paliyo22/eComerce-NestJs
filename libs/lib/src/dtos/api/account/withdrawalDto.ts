@@ -9,7 +9,7 @@ export class WithdrawalDto {
     created: Date;
 
     constructor(withdrawal: Withdrawal){
-        this.amount = withdrawal.amount;
+        this.amount = Number(withdrawal.amount);
         this.status = withdrawal.status;
         this.cbu = withdrawal.cbu;
         this.created = new Date(withdrawal.created);

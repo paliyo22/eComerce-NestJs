@@ -274,25 +274,13 @@ export class CartService {
         });
       };
 
-      const result = await firstValueFrom(
+      return firstValueFrom(
         this.productClient.send<SuccessDto<ProductOrderDto[] | UnavailableProductsDto[]>>(
           { cmd: 'reserve' },
           { products }
         )
       );
 
-      if(!result.success){
-        return {
-          success: false,
-          code: result.code,
-          message: result.message 
-        };
-      };
-      
-      return {
-        success: true,
-        data: result.data
-      }
     } catch (err: any) {
       return errorMessage(CartService.name, err);
     }
@@ -313,27 +301,32 @@ export class CartService {
 
   async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
     try {
+      console.log(`ingeso de deleteFromCart: \naccountId: ${accountId} \nitems: `, items);
       const cacheKey = `cart:${accountId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       
       let cartId: string;
       if (cached) {
         cartId = (JSON.parse(cached) as CartOutputDto).id; 
+        console.log('from cache cartId: ', cartId);
       }else{
         cartId = (await this.myCart(accountId)).id;
+        console.log('from db cartId: ', cartId);
       }
 
       const products = items.map((i) => uuidTransformer.to(i.productId));
 
-      await this.cartProductRepo
+      console.log('productsIds: ', products);
+      const aux = await this.cartProductRepo
         .createQueryBuilder()
         .delete()
         .where('productId IN (:...productIds)', { productIds: products })
         .andWhere(`cartId = :cartId`, { cartId: uuidTransformer.to(cartId) })
         .execute();
-
+      
+      console.log('aux: ', aux);
     } catch (err: any) {
-      this.logger.log('The function "deleteProductsFromCarts" failed');
+      this.logger.log('The function "deleteProductsFromCarts" failed', err);
     }
   }
 }
