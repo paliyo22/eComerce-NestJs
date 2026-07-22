@@ -52,7 +52,6 @@ export class BalanceService {
                 .orderBy('w.created', 'DESC')
                 .getMany();
 
-            console.log('resultado de la query: ', result);
             const data = result.map((w) => new WithdrawalDto(w));
             
             return {

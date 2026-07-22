@@ -10,12 +10,12 @@ export class GeneralController {
         private readonly generalService: GeneralService
     ){};
 
-    @Get('/result/:uuid')
+    @Get('/result/:token')
     @UseGuards(JwtAuthGuard)
     async transactionResult(
-        @Param('uuid', ParseUUIDPipe) uuid: string
+        @Param('token', ParseUUIDPipe) token: string
     ): Promise<void>{
-        const result = await this.generalService.transactionResult(uuid);
+        const result = await this.generalService.transactionResult(token);
         if(result === EStateStatus.Pending){
             throw new HttpException('', 102);
         };

@@ -90,7 +90,6 @@ export class OrderService {
     const token = new TransactionDto(uuidv4(), true, EStateStatus.Pending);
     const cacheKey = `transaction:${token.uuid}`;
     try {
-      console.log('datos de entrada en restore stock:', products);
       await firstValueFrom(
         this.productClient.send<void>(
           { cmd: 'restore_stock' },
@@ -98,7 +97,6 @@ export class OrderService {
         ).pipe(withRetry(5, 60000, this.config.get<number>('MESSAGE_TIMEOUT')))
       );
     } catch (err: any) {
-      console.log('error en restore stock:', err);
       const cache = await this.redis.get(cacheKey).catch(() => undefined);
       if(cache){
         const transaction = JSON.parse(cache) as TransactionDto;
@@ -112,7 +110,6 @@ export class OrderService {
   }
 
   private async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
-    console.log(`datos de entrada en deleteProductsFromCart: \naccountId: ${accountId} \nitems: `, items);
     await firstValueFrom(
       this.cartClient.send<void>(
         { cmd: 'delete_products_from_cart' },
@@ -357,17 +354,12 @@ export class OrderService {
       let draft: DraftOrder | undefined = undefined;
       if(cached){
         draft = JSON.parse(cached) as DraftOrder;
-        console.log('draft de cache: ', draft);
       }else{
         draft = await this.draftRepo
           .createQueryBuilder()
           .where('id = :draftOrderId', { draftOrderId: uuidTransformer.to(draftOrderId) })
           .getOne();
-        console.log('draft de db: ', draft);
       }
-
-      console.log('accountId recivido: ', accountId);
-      console.log('draftOrderId recivido: ', draftOrderId);
 
       if (!draft) {
         return notFound
@@ -605,7 +597,6 @@ export class OrderService {
         .orderBy('o.created', 'DESC')
         .getMany();
 
-      console.log('shopping list: ', orders);
       const data = orders.map((o) => new PartialOrderDto(o));
       if(data.length){
         await this.redis.set(cacheKey, JSON.stringify(data), 'EX', 30).catch(() => {});
@@ -760,8 +751,7 @@ export class OrderService {
           shippingAddress: draftOrder.shippingAddress,
           contactEmail: draftOrder.contactEmail
         }); 
-        const aux = await manager.save(order, { reload: false });
-        console.log('resultado de la creacion de order: ', aux);
+        await manager.save(order, { reload: false });
 
         const items = manager.create(OrderItem, draftOrder.items.map((i) => {
           return {
@@ -795,7 +785,6 @@ export class OrderService {
 
       return {success: true};
     } catch (err) {
-      console.log('catch del createTestPurchase: ', err);
       return errorMessage(OrderService.name, err);
     }
   }

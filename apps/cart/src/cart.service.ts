@@ -301,22 +301,18 @@ export class CartService {
 
   async deleteProductsFromCart(accountId: string, items: OrderItem[]): Promise<void> {
     try {
-      console.log(`ingeso de deleteFromCart: \naccountId: ${accountId} \nitems: `, items);
       const cacheKey = `cart:${accountId}`;
       const cached = await this.redis.get(cacheKey).catch(() => {});
       
       let cartId: string;
       if (cached) {
         cartId = (JSON.parse(cached) as CartOutputDto).id; 
-        console.log('from cache cartId: ', cartId);
       }else{
         cartId = (await this.myCart(accountId)).id;
-        console.log('from db cartId: ', cartId);
       }
 
       const products = items.map((i) => uuidTransformer.to(i.productId));
 
-      console.log('productsIds: ', products);
       const aux = await this.cartProductRepo
         .createQueryBuilder()
         .delete()
@@ -324,7 +320,6 @@ export class CartService {
         .andWhere(`cartId = :cartId`, { cartId: uuidTransformer.to(cartId) })
         .execute();
       
-      console.log('aux: ', aux);
     } catch (err: any) {
       this.logger.log('The function "deleteProductsFromCarts" failed', err);
     }
