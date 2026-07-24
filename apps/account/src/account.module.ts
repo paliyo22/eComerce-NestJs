@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { accountEntities, dbSchema } from '@app/lib';
 import { RedisModule } from '@app/redis';
-import { RabbitProxyModule } from '../../../libs/rabbit-proxy/src';
+import { RabbitProxyModule } from '@app/rabbit-proxy';
 import { AdminService } from './admin.service';
 import { AuthService } from './auth.service';
 import { EventService } from './event.service';

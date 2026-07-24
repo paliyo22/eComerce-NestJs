@@ -15,7 +15,7 @@ import { OrderModule } from './order/order.module';
 import { ProductModule } from './product/product.module';
 import { ReviewModule } from './review/review.module';
 import { StoreModule } from './store/store.module';
-import { RabbitProxyModule } from '../../../libs/rabbit-proxy/src';
+import { RabbitProxyModule } from '@app/rabbit-proxy';
 import { GeneralModule } from './general/general.module';
 import { RedisModule } from '@app/redis';
 

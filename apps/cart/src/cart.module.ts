@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { cartEntities, dbSchema } from '@app/lib';
 import { RedisModule } from '@app/redis';
-import { RabbitProxyModule } from '../../../libs/rabbit-proxy/src';
+import { RabbitProxyModule } from '@app/rabbit-proxy';
 
 @Module({
   imports: [
