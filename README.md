@@ -315,7 +315,7 @@ Algunas operaciones (por ejemplo, un retiro de saldo) no se resuelven de forma i
 - `200` (sin cuerpo) → la operación se resolvió correctamente.
 - `500` → la operación falló.
 
-> Los esquemas mencionados en esta sección están detallados en [Esquemas](#esquemas).
+> Los esquemas mencionados en esta sección están detallados en [Esquemas](#esquemas--schemas).
 
 ## Cómo se probó
 
@@ -914,6 +914,7 @@ I consider that I have already learned what I set out to learn with this project
   ```
 
 > Nota: `NewStore` recibe la dirección "aplanada" (campos sueltos), mientras que `Store` la devuelve anidada dentro de `address`. Es intencional (así es como lo espera el input vs. cómo se arma el output), pero vale la pena tenerlo presente al integrar.
+
 > Note: `NewStore` receives the address in a flattened structure (plain fields), while `Store` returns it nested inside `address`. This is intentional, as it matches the expected input vs. output format, but it is worth keeping in mind during integration.
 
 ## Autor
