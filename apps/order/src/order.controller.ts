@@ -1,6 +1,6 @@
 import { Controller, Inject } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { SuccessDto, OrderDto, DraftOrderOutputDto, CreateDraftOrderDto, 
   EStateStatus, DraftOrder, PartialOrderDto, SaleDto, UnavailableProductsDto,
   MoneyVariations, TransactionDto } from '@app/lib';
@@ -40,14 +40,13 @@ export class OrderController {
 
   @MessagePattern({ cmd: 'create_order' })
   async setOrder(@Payload() data: { draftOrderId: string, token: TransactionDto, accountId?: string }): Promise<SuccessDto<void>> {
-    if(data.token){
-      const result = await this.orderService.check(data.token);
-      if(result === 'failed')
-        return { success: false, message: 'INTERNAL_ERROR', code: 500 };
+    const result = await this.orderService.check(data.token);
+    if(result === 'failed')
+      return { success: false, message: 'INTERNAL_ERROR', code: 500 };
 
-      if(result === 'completed')
-        return { success: true };
-    };
+    if(result === 'completed')
+      return { success: true };
+    
     return this.orderService.setOrder(data.draftOrderId, data.token, data.accountId);
   }
 
@@ -77,6 +76,11 @@ export class OrderController {
     return this.orderService.getOutgo(data.accountId, data.since, data.until);
   }
 
+  //------------------------------ ADMIN ----------------------------
+  @EventPattern('clean.draft.orders')
+    cleanDraftOrders(): void {
+      this.orderService.cleanDraftOrders();
+    }
 
   //------------------------------ TEST -----------------------------
   @MessagePattern({ cmd: 'test_purchase' })

@@ -25,7 +25,7 @@ export class GeneralController {
     }
 
     @Get('/health')
-    async healt(): Promise<string>{
+    async health(): Promise<string>{
         return 'Anda bien!!!';        
     }
 

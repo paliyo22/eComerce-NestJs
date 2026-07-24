@@ -11,15 +11,12 @@ export class StoreService {
         private readonly accountClient: ClientProxy
     ) {};
 
-    async getStores(accountId?: string, username?: string): Promise<StoreDto[]> {
+    async getStores(accountId: string): Promise<StoreDto[]> {
         try {
-            if(!accountId && !username){
-                throw new HttpException('BAD_REQUEST', 400);
-            }
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<StoreDto[]>>(
                     {cmd: 'get_stores'},
-                    { accountId, username }
+                    { accountId }
                 ).pipe(withRetry())
             ); 
 

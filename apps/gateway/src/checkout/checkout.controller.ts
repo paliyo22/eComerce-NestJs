@@ -97,7 +97,7 @@ export class CheckoutController {
     };
     //-----------------------------------------------------------//
 
-    @Post('/:draftOrderId')
+    @Post('/mp/:draftOrderId')
     @UseGuards(JwtAuthGuard)
     @HttpCode(201)
     async createPaymentLink(

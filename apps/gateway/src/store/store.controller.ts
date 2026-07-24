@@ -17,7 +17,7 @@ export class StoreController {
     async getMyStores(
         @User('accountId') accountId: string
     ): Promise<StoreDto[]> {
-        return this.storeService.getStores(accountId, undefined);
+        return this.storeService.getStores(accountId);
     }
 
     @Post()
@@ -31,13 +31,6 @@ export class StoreController {
             throw new HttpException(badRequest.message, badRequest.code); 
         };
         return this.storeService.addStore(account.accountId, store);
-    }
-
-    @Get('/:username')
-    async getStores(
-        @Param('username') username: string
-    ): Promise<StoreDto[]> {
-        return this.storeService.getStores(undefined, username);
     }
     
     @Delete('/:storeId')

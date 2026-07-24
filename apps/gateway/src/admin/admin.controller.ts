@@ -68,31 +68,31 @@ export class AdminController {
     }
 
     //---------------------- Account /: ---------------------------
-    @Post('/account/ban/:mail')
+    @Post('/account/ban/:username')
     @HttpCode(204)
     async banAccount(
         @User('accountId') accountId: string,
-        @Param('mail') mail: string
+        @Param('username') username: string
     ): Promise<void> {
-        await this.adminService.banAccount(accountId, mail);
+        await this.adminService.banAccount(accountId, username);
     }
 
-    @Post('/account/unban/:mail')
+    @Post('/account/unban/:username')
     @HttpCode(204)
     async unbanAccount(
         @User('accountId') accountId: string,
-        @Param('mail') mail: string
+        @Param('username') username: string
     ): Promise<void> {
-        await this.adminService.unbanAccount(accountId, mail);
+        await this.adminService.unbanAccount(accountId, username);
     }
 
-    @Post('/account/suspend/:mail')
+    @Post('/account/suspend/:username')
     @HttpCode(204)
     async suspendAccount(
         @User('accountId') accountId: string,
-        @Param('mail') mail: string
+        @Param('username') username: string
     ): Promise<void> {
-        await this.adminService.suspendAccount(accountId, mail);
+        await this.adminService.suspendAccount(accountId, username);
     }
 
     @Get('/account/search-account/:username')
@@ -104,7 +104,7 @@ export class AdminController {
     }
 
     //---------------------- PRODUCT SERVICE -----------------------
-    @Post('/calculate-rating')
+    @Post('/product/calculate-rating')
     @HttpCode(202)
     async calculateRating(): Promise<void> {
         return this.adminService.calculateRating();
@@ -136,5 +136,12 @@ export class AdminController {
         @Param('id', ParseUUIDPipe) id: string
     ): Promise<void> {
         await this.adminService.unbanProduct(accountId, id);
+    }
+
+    //-------------------- ORDER SERVICE ---------------------------
+    @Post('/order/clean-draft-orders')
+    @HttpCode(202)
+    async cleanDraftOrders(): Promise<void> {
+        return this.adminService.cleanDraftOrders();
     }
 }

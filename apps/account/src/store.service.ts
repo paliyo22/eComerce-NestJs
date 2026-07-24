@@ -14,25 +14,16 @@ export class StoreService {
         private readonly storeRepository: Repository<Store>,
     ){};
 
-    async getStores(accountId?: string, username?: string): Promise<SuccessDto<StoreDto[]>> {
+    async getStores(accountId: string): Promise<SuccessDto<StoreDto[]>> {
         try {
-            const qb = this.accountRepository
+            const result = await this.accountRepository
                 .createQueryBuilder('a')
                 .innerJoinAndSelect('a.meta', 'm')
                 .leftJoinAndSelect('m.status', 'st')
                 .leftJoinAndSelect('a.stores', 's')
-                .leftJoinAndSelect('s.address', 'sa');
-
-            if(!accountId && !username){
-                return badRequest;
-            }else{
-                if(accountId){
-                    qb.where('a.id = :accountId', { accountId: uuidTransformer.to(accountId) });
-                }else{
-                    qb.where('a.username = :username', {username});
-                };
-            };
-            const result = await qb.getOne();
+                .leftJoinAndSelect('s.address', 'sa')
+                .where('a.id = :accountId', { accountId: uuidTransformer.to(accountId) })
+                .getOne();
 
             if(!result){
                 return notFound;
@@ -42,8 +33,7 @@ export class StoreService {
                 return banned;
             }
 
-            const data: StoreDto[] = []; 
-            result.stores.forEach((s) => { data.push(new StoreDto(s)) });
+            const data = result.stores.length ? result.stores.map((s) => new StoreDto(s)) : [];
             return {
                 success: true,
                 data

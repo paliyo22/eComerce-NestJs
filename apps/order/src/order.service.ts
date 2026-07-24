@@ -12,6 +12,7 @@ import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class OrderService {
@@ -326,7 +327,7 @@ export class OrderService {
 
         if(!draft) return notFound;
         
-        if(draft.status !== EStateStatus.Pending){
+        if(draft.status === EStateStatus.Completed){
           await manager.createQueryBuilder()
             .delete()
             .from(DraftOrder)
@@ -717,7 +718,28 @@ export class OrderService {
     }
   }
 
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanDraftOrders(): Promise<void> {
+    const lockKey = 'lock:clean_draft_orders';
+    const token = uuidv4();
+    const lock = await this.redis.set(lockKey, token, 'EX', 100, 'NX').catch(() => undefined);
 
+    if (!lock) return;
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    
+    try{      
+      await this.draftRepo.createQueryBuilder()
+        .delete()
+        .from(DraftOrder)
+        .where('created < :date', { date: oneWeekAgo })
+        .execute();
+    } catch (err: any) {
+      errorMessage(OrderService.name, err);
+    } finally {
+      await this.releaseLock(lockKey, token).catch(() => {});
+    }
+  }
 
 
 

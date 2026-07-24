@@ -84,7 +84,7 @@ export class ProductController {
     @User('accountId') accountId: string,
   ): Promise<void> {
     if (isNaN(discount) || discount < 0 || discount > 100) {
-      throw new BadRequestException('Porcentaje inválido debe ser entre 0-100');
+      throw new BadRequestException('Invalid percentage; must be between 0-100.');
     }
     await this.productService.updateDiscount(accountId, productId, discount);
   }

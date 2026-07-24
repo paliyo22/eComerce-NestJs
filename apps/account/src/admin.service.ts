@@ -1,4 +1,4 @@
-import { Account, AccountOutputDto, AdminProfile, badRequest, CreateAccountDto, 
+import { Account, AccountOutputDto, AdminProfile, badRequest, banned, CreateAccountDto, 
     EAccountStatus, ERole, errorMessage, getRoleGroup, MetaA, notFound, PartialAccountOutputDto, 
     Status, SuccessDto, unauthorized, uuidTransformer } from "@app/lib";
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -302,7 +302,7 @@ export class AdminService {
         }
     }
 
-    async banAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
+    async banAccount(adminId: string, username: string): Promise<SuccessDto<void>> {
         try {
             const verify = await this.generalService.getPartialAccount(adminId);
 
@@ -322,7 +322,7 @@ export class AdminService {
                 .createQueryBuilder('a')
                 .innerJoinAndSelect('a.meta', 'm')
                 .leftJoinAndSelect('m.status', 's')
-                .where('a.email = :input', { input: email })
+                .where('a.username = :input', { input: username })
                 .getOne();
 
             if (!user) {
@@ -348,19 +348,17 @@ export class AdminService {
                     ).catch(() => {
                     this.logger.warn(`Error emitting the banned account "${user.id}" to delete the products`);
                 });
+            }
 
-                return {
-                    success: true
-                };
-            }else{
-                return badRequest;
-            }      
+            return {
+                success: true
+            };     
         } catch (err: any) {
             return errorMessage(AdminService.name, err);
         }
     }
 
-    async restoreAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
+    async restoreAccount(adminId: string, username: string): Promise<SuccessDto<void>> {
         try {
             const verify = await this.generalService.getPartialAccount(adminId);
 
@@ -380,12 +378,12 @@ export class AdminService {
                 .createQueryBuilder('a')
                 .innerJoinAndSelect('a.meta', 'm')
                 .leftJoinAndSelect('m.status', 's')
-                .where('a.email = :input', { input: email })
+                .where('a.username = :input', { input: username })
                 .getOne();
 
             if (!user) {
                 return badRequest;
-            }
+            };
 
             if (user.meta.status.slug !== EAccountStatus.Active) {
                 const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Active }});
@@ -399,19 +397,17 @@ export class AdminService {
                     .set({ deletedBy: null, deleted: null, statusId: newStatus.id })
                     .where('accountId = :id', { id: uuidTransformer.to(user.id) })
                     .execute();
+            };
 
-                return { 
-                    success: true
-                };
-            }else{
-                return badRequest;
-            }      
+            return { 
+                success: true
+            };
         } catch (err: any) {
             return errorMessage(AdminService.name, err);
         }
     }  
 
-    async suspendAccount(adminId: string, email: string): Promise<SuccessDto<void>> {
+    async suspendAccount(adminId: string, username: string): Promise<SuccessDto<void>> {
         try {
             const verify = await this.generalService.getPartialAccount(adminId);
 
@@ -431,14 +427,18 @@ export class AdminService {
                 .createQueryBuilder('a')
                 .innerJoinAndSelect('a.meta', 'm')
                 .leftJoinAndSelect('m.status', 's')
-                .where('a.email = :input', { input: email })
+                .where('a.username = :input', { input: username })
                 .getOne();
 
             if (!user) {
                 return badRequest;
-            }
+            };
 
-            if ((user.meta.status.slug !== EAccountStatus.Suspended) && (user.meta.status.slug !== EAccountStatus.Banned)) {
+            if(user.meta.status.slug === EAccountStatus.Banned) {
+                return banned;
+            };
+
+            if (user.meta.status.slug !== EAccountStatus.Suspended) {
                 const newStatus = await this.statusRepository.findOne({ where: { slug: EAccountStatus.Suspended }});
                 if(!newStatus){
                     throw new Error('Error finding the suspended id on the Data Base');
@@ -456,14 +456,12 @@ export class AdminService {
                     .pipe(retry(1), timeout(1000))
                     ).catch(() => {
                     this.logger.warn(`Error emitting the suspended account "${user.id}" to delete the products`);
-                });
+                });                
+            };
 
-                return {
-                    success: true
-                };
-            }else{
-                return badRequest;
-            }      
+            return {
+                success: true
+            };
         } catch (err: any) {
             return errorMessage(AdminService.name, err);
         }

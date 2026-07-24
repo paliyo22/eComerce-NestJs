@@ -90,8 +90,8 @@ export class AccountController {
   }
 
   @MessagePattern({ cmd: 'get_stores' })
-  async getStore(@Payload() data: { accountId?: string, username?: string }): Promise<SuccessDto<StoreDto[]>> {
-    return this.storeService.getStores(data.accountId, data.username);
+  async getStore(@Payload() data: { accountId: string }): Promise<SuccessDto<StoreDto[]>> {
+    return this.storeService.getStores(data.accountId);
   }
 
   @MessagePattern({ cmd: 'add_store' })
@@ -181,18 +181,18 @@ export class AccountController {
   }
 
   @MessagePattern({ cmd: 'ban_account' })
-  async banAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.adminService.banAccount(data.adminId, data.mail);
+  async banAccount(@Payload() data: {adminId: string, username: string}): Promise<SuccessDto<void>> {
+    return this.adminService.banAccount(data.adminId, data.username);
   }
 
   @MessagePattern({ cmd: 'unban_account' })
-  async restoreAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.adminService.restoreAccount(data.adminId, data.mail);
+  async restoreAccount(@Payload() data: {adminId: string, username: string}): Promise<SuccessDto<void>> {
+    return this.adminService.restoreAccount(data.adminId, data.username);
   }
 
   @MessagePattern({ cmd: 'suspend_account' })
-  async suspendAccount(@Payload() data: {adminId: string, mail: string}): Promise<SuccessDto<void>> {
-    return this.adminService.suspendAccount(data.adminId, data.mail);
+  async suspendAccount(@Payload() data: {adminId: string, username: string}): Promise<SuccessDto<void>> {
+    return this.adminService.suspendAccount(data.adminId, data.username);
   }
   
   //------------------ EVENT FUNCTIONS -------------------------------

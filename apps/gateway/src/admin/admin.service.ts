@@ -11,7 +11,9 @@ export class AdminService {
         @Inject('PRODUCT_SERVICE') 
         private readonly productClient: ClientProxy,
         @Inject('ACCOUNT_SERVICE') 
-        private readonly accountClient: ClientProxy
+        private readonly accountClient: ClientProxy,
+        @Inject('ORDER_SERVICE') 
+        private readonly orderClient: ClientProxy
     ) {};
     //-------------------- ACCOUNT CLIENT ------------------------
     async getAccountList(adminId: string, limit?: number, offset?: number): Promise<PartialAccountOutputDto[]> {
@@ -145,12 +147,12 @@ export class AdminService {
         }
     }
 
-    async banAccount(adminId: string, mail: string): Promise<void> {
+    async banAccount(adminId: string, username: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
                     {cmd: 'ban_account'},
-                    { adminId, mail }
+                    { adminId, username }
                 ).pipe(withRetry())
             ); 
 
@@ -162,12 +164,12 @@ export class AdminService {
         }   
     }
 
-    async unbanAccount(adminId: string, mail: string): Promise<void> {
+    async unbanAccount(adminId: string, username: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
                     {cmd: 'unban_account'},
-                    { adminId, mail }
+                    { adminId, username }
                 ).pipe(withRetry())
             ); 
 
@@ -179,12 +181,12 @@ export class AdminService {
         }   
     }
 
-    async suspendAccount(adminId: string, mail: string): Promise<void> {
+    async suspendAccount(adminId: string, username: string): Promise<void> {
         try {
             const result = await firstValueFrom(
                 this.accountClient.send<SuccessDto<void>>(
                     {cmd: 'suspend_account'},
-                    { adminId, mail }
+                    { adminId, username }
                 ).pipe(withRetry())
             ); 
 
@@ -252,6 +254,15 @@ export class AdminService {
             };
 
             return result.data!;
+        } catch (err: any) {
+            throw errorManager(err, AdminService.name);
+        }
+    }
+
+    //-------------------------- ORDER ----------------------------
+    async cleanDraftOrders(): Promise<void> {
+        try {
+            this.orderClient.emit('clean.draft.orders', {})
         } catch (err: any) {
             throw errorManager(err, AdminService.name);
         }

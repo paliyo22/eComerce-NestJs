@@ -28,10 +28,10 @@
         "./libs/lib/src/*"
       ],
       "@app/rabit-proxy": [
-        "./libs/rabit-proxy/src/index"
+        "libs/rabbit-proxy/src/index"
       ],
       "@app/rabit-proxy/*": [
-        "./libs/rabit-proxy/src/*"
+        "libs/rabbit-proxy/src/*"
       ],
       "@app/redis": [
         "./libs/redis/src/index"
